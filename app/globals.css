@@ -1,26 +1,97 @@
 @import "tailwindcss";
 
+/* ============================================================
+   LOCKIN.FOOD — Design System
+   ============================================================ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand palette */
+  --moss-deep: #2D4A3E;
+  --moss-light: #5A7A6B;
+  --coral: #E89B7C;
+  --cream: #FAF8F3;
+  --white: #FFFFFF;
+  --ink: #1A1F1B;
+  --ink-soft: #6B7268;
+  --sage: #7BA088;
+  --amber: #D4A574;
+  --terracotta: #C66B5C;
+
+  --background: var(--cream);
+  --foreground: var(--ink);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-display: 'Fraunces', Georgia, serif;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  /* Expose brand colors as Tailwind utilities */
+  --color-moss-deep: var(--moss-deep);
+  --color-moss-light: var(--moss-light);
+  --color-coral: var(--coral);
+  --color-cream: var(--cream);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-sage: var(--sage);
+  --color-amber: var(--amber);
+  --color-terracotta: var(--terracotta);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+}
+
+/* Macro progress bars */
+.macro-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: #E8E4DC;
+  overflow: hidden;
+}
+
+.macro-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+
+/* Card base */
+.card {
+  background: var(--white);
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(45, 74, 62, 0.06);
+}
+
+/* Slot timeline */
+.slot-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--moss-light);
+  flex-shrink: 0;
+}
+
+/* Status badge colors */
+.status-fresh { color: var(--sage); }
+.status-low { color: var(--amber); }
+.status-expired { color: var(--terracotta); }
+.status-out { color: var(--ink-soft); }
