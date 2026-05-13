@@ -296,32 +296,29 @@ function OnboardingContent() {
         updated_at: new Date().toISOString(),
       };
 
-      // Try UPDATE first (user already created by /start)
-      const { data: updated, error: updateError } = await supabase
+      const tgIdInt = parseInt(tgId, 10);
+
+      // Upsert: INSERT if no row exists for this chat ID, UPDATE if one does
+      const { error: upsertError } = await supabase
         .from("users")
-        .update(updateData)
-        .eq("telegram_chat_id", parseInt(tgId))
-        .select()
-        .single();
+        .upsert(
+          { telegram_chat_id: tgIdInt, ...updateData },
+          { onConflict: "telegram_chat_id" }
+        );
 
-      if (updateError || !updated) {
-        // User record doesn't exist — INSERT it
-        const { error: insertError } = await supabase
-          .from("users")
-          .insert({
-            telegram_chat_id: parseInt(tgId),
-            ...updateData,
-          });
-
-        if (insertError) {
-          console.error("Insert error:", insertError);
-          setSubmitError("Failed to save your profile. Please try again.");
-          return;
-        }
+      if (upsertError) {
+        console.error("Upsert error:", upsertError);
+        setSubmitError("Failed to save your profile. Please try again.");
+        return;
       }
 
       // Fire-and-forget plan generation via API
-      const userRecord = updated || (await supabase.from("users").select("id").eq("telegram_chat_id", parseInt(tgId)).single()).data;
+      const { data: userRecord } = await supabase
+        .from("users")
+        .select("id")
+        .eq("telegram_chat_id", tgIdInt)
+        .single();
+
       if (userRecord?.id) {
         fetch("/api/generate-plan", {
           method: "POST",
