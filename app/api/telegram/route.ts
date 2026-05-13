@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase';
 import { buildSystemPrompt, getFeatureFlags, getInstamartConfig } from '@/lib/prompt-builder';
 import { getChatModel } from '@/lib/gemini';
-import { sendMessage, sendTyping } from '@/lib/telegram-helpers';
+import { sendMessage, sendButtons, sendTyping, answerCallbackQuery } from '@/lib/telegram-helpers';
 
 // ============================================================
 // DB HELPERS
@@ -48,6 +48,251 @@ async function getTodayLog(userId: string) {
 }
 
 // ============================================================
+// CONVERSATIONAL ONBOARDING STEP MACHINE
+// ============================================================
+type ObStep = {
+  key: string;
+  q: string;
+  type: 'buttons' | 'number';
+  options?: [string, string][]; // [label, value]
+};
+
+const OB_STEPS: ObStep[] = [
+  {
+    key: 'goal',
+    q: "What's your main goal? 🎯",
+    type: 'buttons',
+    options: [
+      ['Lose fat 🔥', 'lose_fat'],
+      ['Gain muscle 💪', 'gain_muscle'],
+      ['Clean eating 🥗', 'clean_eating'],
+      ['Manage condition 🩺', 'manage_condition'],
+    ],
+  },
+  { key: 'weight_kg', q: 'Current weight in kg?\n_(just the number, e.g. 72)_', type: 'number' },
+  { key: 'height_cm', q: 'Height in cm?\n_(e.g. 175)_', type: 'number' },
+  { key: 'age', q: 'Your age?', type: 'number' },
+  {
+    key: 'sex',
+    q: 'Biological sex?',
+    type: 'buttons',
+    options: [['Male', 'male'], ['Female', 'female']],
+  },
+  {
+    key: 'okay_with_dairy',
+    q: 'Okay with dairy? 🥛',
+    type: 'buttons',
+    options: [['Yes ✓', 'true'], ['No ✗', 'false']],
+  },
+  {
+    key: 'okay_with_eggs',
+    q: 'Okay with eggs? 🥚',
+    type: 'buttons',
+    options: [['Yes ✓', 'true'], ['No ✗', 'false']],
+  },
+  {
+    key: 'okay_with_meat_fish',
+    q: 'Okay with meat/fish? 🍗',
+    type: 'buttons',
+    options: [['Yes ✓', 'true'], ['No ✗', 'false']],
+  },
+  {
+    key: 'works_out',
+    q: 'Do you work out? 💪',
+    type: 'buttons',
+    options: [['Yes 💪', 'true'], ['Sometimes', 'sometimes'], ['No', 'false']],
+  },
+  {
+    key: 'activity_level',
+    q: 'How active is your daily lifestyle? 🏃',
+    type: 'buttons',
+    options: [
+      ['Desk job / sedentary', 'sedentary'],
+      ['Some walking daily', 'light'],
+      ['Physically active job', 'moderate'],
+      ['Very active', 'very_active'],
+    ],
+  },
+  {
+    key: 'region',
+    q: 'What kind of food do you prefer? 🍽️',
+    type: 'buttons',
+    options: [
+      ['North Indian', 'North Indian'],
+      ['South Indian', 'South Indian'],
+      ['Bengali', 'Bengali'],
+      ['Mix of everything', 'Mixed'],
+    ],
+  },
+  {
+    key: 'max_cooking_time',
+    q: 'How much time for cooking daily? 🍳',
+    type: 'buttons',
+    options: [
+      ['Zero (no cooking)', 'zero'],
+      ['Quick < 20 min', 'quick'],
+      ['30-45 min', 'medium'],
+      ['1hr+ (love it)', 'long'],
+    ],
+  },
+];
+
+function computeMacros(data: Record<string, unknown>) {
+  const weight = Number(data.weight_kg) || 70;
+  const height = Number(data.height_cm) || 170;
+  const age = Number(data.age) || 25;
+  const sex = (data.sex as string) || 'male';
+  const activityMap: Record<string, number> = {
+    sedentary: 1.2, light: 1.375, moderate: 1.55, very_active: 1.725,
+  };
+  const multiplier = activityMap[(data.activity_level as string)] || 1.375;
+
+  const bmr = sex === 'female'
+    ? 10 * weight + 6.25 * height - 5 * age - 161
+    : 10 * weight + 6.25 * height - 5 * age + 5;
+
+  const tdee = Math.round(bmr * multiplier);
+  let target_kcal = tdee;
+  if (data.goal === 'lose_fat') target_kcal = Math.max(1200, tdee - 400);
+  if (data.goal === 'gain_muscle') target_kcal = tdee + 300;
+
+  const target_protein_g = Math.round(weight * (data.goal === 'gain_muscle' ? 2.2 : 1.8));
+  const target_fat_g = Math.round((target_kcal * 0.25) / 9);
+  const target_carbs_g = Math.round((target_kcal - target_protein_g * 4 - target_fat_g * 9) / 4);
+
+  return { target_kcal, target_protein_g, target_carbs_g, target_fat_g };
+}
+
+async function sendOnboardingQuestion(chatId: number, step: ObStep): Promise<void> {
+  if (step.type === 'buttons' && step.options) {
+    const rows: { text: string; callback_data: string }[][] = [];
+    for (let i = 0; i < step.options.length; i += 2) {
+      rows.push(
+        step.options.slice(i, i + 2).map(([label, value]) => ({
+          text: label,
+          callback_data: `ob:${value}`,
+        }))
+      );
+    }
+    await sendButtons(chatId, step.q, rows);
+  } else {
+    await sendMessage(chatId, step.q);
+  }
+}
+
+async function finalizeOnboarding(
+  chatId: number,
+  data: Record<string, unknown>
+): Promise<void> {
+  const db = getServerClient();
+  const macros = computeMacros(data);
+  const worksOut =
+    data.works_out === 'true' || data.works_out === true || data.works_out === 'sometimes';
+
+  await db.from('users').update({
+    goal: data.goal,
+    weight_kg: data.weight_kg,
+    height_cm: data.height_cm,
+    age: data.age,
+    sex: data.sex,
+    okay_with_dairy: data.okay_with_dairy === 'true' || data.okay_with_dairy === true,
+    okay_with_eggs: data.okay_with_eggs === 'true' || data.okay_with_eggs === true,
+    okay_with_meat_fish: data.okay_with_meat_fish === 'true' || data.okay_with_meat_fish === true,
+    works_out: worksOut,
+    activity_level: data.activity_level,
+    region: data.region,
+    max_cooking_time: data.max_cooking_time,
+    ...macros,
+    onboarding_complete: true,
+    onboarding_state: { step: OB_STEPS.length, data },
+  }).eq('telegram_chat_id', chatId);
+
+  await sendMessage(
+    chatId,
+    `🎉 *Profile set up!*\n\n` +
+    `Daily target: *${macros.target_kcal} kcal*\n` +
+    `Protein: *${macros.target_protein_g}g* | Carbs: *${macros.target_carbs_g}g* | Fat: *${macros.target_fat_g}g*\n\n` +
+    `Generating your 7-day meal plan... give me 30 seconds ⏳`
+  );
+
+  const { data: updatedUser } = await db.from('users').select('id').eq('telegram_chat_id', chatId).single();
+  if (updatedUser) {
+    try {
+      const res = await fetch(`${process.env.APP_URL}/api/generate-plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: updatedUser.id }),
+      });
+      if (res.ok) {
+        await sendMessage(chatId, `✅ Your meal plan is ready!\n\nSend */plan* to see today's meals.`);
+      } else {
+        await sendMessage(chatId, `Send */plan* in a minute — your plan is being prepared.`);
+      }
+    } catch {
+      await sendMessage(chatId, `Send */plan* in a minute — your plan is being prepared.`);
+    }
+  }
+}
+
+async function handleOnboardingStep(
+  chatId: number,
+  user: Record<string, unknown>,
+  input: string,
+  callbackQueryId: string | null
+): Promise<void> {
+  const db = getServerClient();
+  const state = (user.onboarding_state as { step: number; data: Record<string, unknown> }) ||
+    { step: 0, data: {} };
+  const step = state.step;
+  const data = { ...state.data };
+
+  const currentDef = OB_STEPS[step];
+  if (!currentDef) {
+    await finalizeOnboarding(chatId, data);
+    return;
+  }
+
+  // Strip ob: prefix from callback data
+  const value = input.startsWith('ob:') ? input.slice(3) : input.trim();
+
+  // Validate
+  let parsed: unknown = value;
+  if (currentDef.type === 'number') {
+    const num = parseFloat(value);
+    if (isNaN(num) || num <= 0) {
+      await sendMessage(chatId, `Please send a valid number.\n\n${currentDef.q}`);
+      return;
+    }
+    parsed = num;
+  } else if (currentDef.type === 'buttons' && currentDef.options) {
+    const validValues = currentDef.options.map(([, v]) => v);
+    if (!validValues.includes(value)) {
+      await sendOnboardingQuestion(chatId, currentDef);
+      return;
+    }
+  }
+
+  data[currentDef.key] = parsed;
+
+  if (callbackQueryId) {
+    await answerCallbackQuery(callbackQueryId);
+  }
+
+  const nextStep = step + 1;
+
+  if (nextStep >= OB_STEPS.length) {
+    await finalizeOnboarding(chatId, data);
+    return;
+  }
+
+  await db.from('users')
+    .update({ onboarding_state: { step: nextStep, data } })
+    .eq('telegram_chat_id', chatId);
+
+  await sendOnboardingQuestion(chatId, OB_STEPS[nextStep]);
+}
+
+// ============================================================
 // WEBHOOK HANDLER
 // ============================================================
 export async function POST(req: NextRequest) {
@@ -61,30 +306,42 @@ export async function POST(req: NextRequest) {
 
     const chatId: number = body.message?.chat?.id || body.callback_query?.message?.chat?.id;
     const messageText: string = body.message?.text || body.callback_query?.data || '';
+    const callbackQueryId: string | null = body.callback_query?.id || null;
     const username: string =
       body.message?.from?.username ||
       body.message?.from?.first_name ||
+      body.callback_query?.from?.username ||
+      body.callback_query?.from?.first_name ||
       '';
 
     if (!chatId) return NextResponse.json({ ok: true });
 
     // ---- /start ----
     if (messageText === '/start') {
-      const user = await getUser(chatId);
+      let user = await getUser(chatId);
       if (!user) {
         await db.from('users').insert({
           telegram_chat_id: chatId,
           telegram_username: username,
+          onboarding_state: { step: 0, data: {} },
         });
+        user = await getUser(chatId);
       }
+
       if (!user || !user.onboarding_complete) {
-        await sendMessage(
-          chatId,
-          `Hey ${username || 'there'}! Welcome to *Lockin* 🔒\n\n` +
-          `I'm your AI nutrition coach. I plan your meals, track your macros, manage your pantry, and plan your workouts.\n\n` +
-          `Set up your profile here:\n👉 ${process.env.APP_URL}/onboarding?tg=${chatId}\n\n` +
-          `Come back and send /plan when you're done.`
-        );
+        const state = (user?.onboarding_state as { step: number; data: Record<string, unknown> }) ||
+          { step: 0, data: {} };
+        const step = Math.min(state.step, OB_STEPS.length - 1);
+
+        if (step === 0 && Object.keys(state.data || {}).length === 0) {
+          await sendMessage(
+            chatId,
+            `Hey ${username || 'there'}! Welcome to *Lockin* 🔒\n\nI'm your AI nutrition coach — meal plans, macro tracking, pantry management, and workout guidance.\n\nLet's set up your profile. 12 quick questions. ⚡`
+          );
+        } else {
+          await sendMessage(chatId, `Welcome back! Let's pick up where we left off.`);
+        }
+        await sendOnboardingQuestion(chatId, OB_STEPS[step]);
       } else {
         await sendMessage(
           chatId,
@@ -117,16 +374,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // ---- All other messages: route through Gemini ----
+    // ---- Route to onboarding if not complete ----
     const user = await getUser(chatId);
     if (!user || !user.onboarding_complete) {
-      await sendMessage(
-        chatId,
-        `Set up your profile first:\n👉 ${process.env.APP_URL}/onboarding?tg=${chatId}`
-      );
+      if (callbackQueryId) await answerCallbackQuery(callbackQueryId);
+      if (!user) {
+        await sendMessage(chatId, `Send /start to begin.`);
+        return NextResponse.json({ ok: true });
+      }
+      await handleOnboardingStep(chatId, user, messageText, callbackQueryId);
       return NextResponse.json({ ok: true });
     }
 
+    // ---- All other messages: route through Gemini ----
     await sendTyping(chatId);
 
     const [plan, pantry, todayLog, features] = await Promise.all([
@@ -138,7 +398,6 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = await buildSystemPrompt(user, plan, pantry, todayLog);
 
-    // Suppress unused var warning — rate limiting hook point
     void features;
 
     const instamartConfig = await getInstamartConfig();

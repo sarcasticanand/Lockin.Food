@@ -41,23 +41,14 @@ export default function LandingPage() {
           workouts — all through a simple Telegram chat. Like having a nutrition coach in
           your pocket.
         </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+        <div className="flex justify-center">
           <Link
             href="/onboarding"
-            className="font-semibold px-8 py-4 rounded-2xl text-base transition-colors w-full sm:w-auto text-center"
+            className="font-semibold px-8 py-4 rounded-2xl text-base transition-colors text-center"
             style={{ backgroundColor: "#2D4A3E", color: "#FFFFFF" }}
           >
             Set up my profile →
           </Link>
-          <a
-            href="https://t.me/lockinfood_bot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 font-medium px-6 py-4 rounded-2xl transition-colors w-full sm:w-auto justify-center"
-            style={{ color: "#2D4A3E", border: "1px solid rgba(45,74,62,0.3)" }}
-          >
-            Open on Telegram
-          </a>
         </div>
       </section>
 

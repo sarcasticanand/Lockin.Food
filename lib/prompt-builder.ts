@@ -137,6 +137,7 @@ export async function buildSystemPrompt(
     '{{workout_day_kcal}}': String(Math.round(targetKcal * 1.12)),
     '{{workout_days}}': workoutDays.join(', ') || 'none',
     '{{workout_type}}': (user.workout_type as string) || 'none',
+    '{{meal_preps}}': user.meal_preps ? 'Yes, batch cooks on weekends' : 'No',
   };
 
   return applyReplacements(template, replacements);
