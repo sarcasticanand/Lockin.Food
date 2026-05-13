@@ -330,8 +330,8 @@ function OnboardingContent() {
         }).catch(() => {});
       }
 
-      // Redirect to Telegram bot
-      window.location.href = "https://t.me/kanshi_bot";
+      // Open Telegram bot in new tab / trigger deep link
+      window.open("https://t.me/kanshi_bot", "_blank");
     } catch (e) {
       console.error("Submit error:", e);
       setSubmitError("Something went wrong. Please try again.");
@@ -518,13 +518,10 @@ function OnboardingContent() {
                 { value: "no", label: "No" },
               ].map(opt => (
                 <OptionButton key={opt.value}
-                  selected={(opt.value === "no" && !profile.works_out && profile.workout_time === "no") ||
-                    (opt.value === "yes" && profile.works_out && profile.workout_time !== "no") ||
-                    (opt.value === "sometimes" && profile.works_out && profile.workout_time === "sometimes")}
+                  selected={profile.workout_time === opt.value}
                   onClick={() => {
-                    if (opt.value === "no") { update("works_out", false); update("workout_time", "no"); }
-                    else if (opt.value === "sometimes") { update("works_out", true); update("workout_time", "sometimes"); }
-                    else { update("works_out", true); update("workout_time", ""); }
+                    update("workout_time", opt.value);
+                    update("works_out", opt.value !== "no");
                   }}>
                   {opt.label}
                 </OptionButton>
@@ -661,16 +658,6 @@ function OnboardingContent() {
                   placeholder="e.g. From Kerala, living in Gurgaon"
                   className="w-full border rounded-xl px-4 py-3 text-sm outline-none"
                   style={{ borderColor: "#E8E4DC" }} />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>Region</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["north", "south", "east", "west", "other"] as Region[]).map(r => (
-                    <OptionButton key={r} selected={profile.region === r} onClick={() => update("region", r)}>
-                      <span className="capitalize text-sm">{r}</span>
-                    </OptionButton>
-                  ))}
-                </div>
               </div>
             </div>
           </StepCard>
