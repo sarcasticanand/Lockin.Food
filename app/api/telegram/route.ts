@@ -349,27 +349,30 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
 
-      // New user or incomplete — upsert so we never fail on unique constraint
-      const { error: upsertError } = await db.from('users').upsert(
-        {
+      if (!user) {
+        // New user — plain INSERT
+        const { error: insertError } = await db.from('users').insert({
           telegram_chat_id: chatId,
           telegram_username: username,
           onboarding_state: { step: 0, data: {} },
           onboarding_complete: false,
-        },
-        { onConflict: 'telegram_chat_id', ignoreDuplicates: false }
-      );
-
-      if (upsertError) {
-        console.error('[start] upsert error:', upsertError);
-        await sendMessage(chatId, `Something went wrong starting your profile. Please try again.`);
-        return NextResponse.json({ ok: true });
+        });
+        if (insertError) {
+          console.error('[start] insert error:', insertError.message, insertError.code);
+          await sendMessage(chatId, `Something went wrong creating your profile. Please try again.`);
+          return NextResponse.json({ ok: true });
+        }
+      } else {
+        // Existing incomplete user — reset onboarding state
+        await db.from('users')
+          .update({ onboarding_state: { step: 0, data: {} }, onboarding_complete: false })
+          .eq('telegram_chat_id', chatId);
       }
 
       user = await getUser(chatId);
 
       if (!user) {
-        console.error('[start] user still null after upsert for chatId:', chatId);
+        console.error('[start] user still null after insert for chatId:', chatId);
         await sendMessage(chatId, `Something went wrong. Please try again.`);
         return NextResponse.json({ ok: true });
       }
