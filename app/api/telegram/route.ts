@@ -341,28 +341,37 @@ export async function POST(req: NextRequest) {
     if (messageText === '/start') {
       let user = await getUser(chatId);
 
-      if (!user) {
-        // New user — create with fresh onboarding state
-        await db.from('users').insert({
-          telegram_chat_id: chatId,
-          telegram_username: username,
-          onboarding_state: { step: 0, data: {} },
-        });
-        user = await getUser(chatId);
-      } else if (user.onboarding_complete) {
+      if (user?.onboarding_complete) {
         await sendMessage(
           chatId,
           `Welcome back ${username || 'there'}! Day ${(user.current_streak || 0) + 1}. You're locked in. 🔒\n\nSend /plan for today's meals.`
         );
         return NextResponse.json({ ok: true });
-      } else {
-        // Existing user, not done — ensure onboarding_state is a valid object
-        if (!user.onboarding_state || typeof user.onboarding_state !== 'object') {
-          await db.from('users')
-            .update({ onboarding_state: { step: 0, data: {} } })
-            .eq('telegram_chat_id', chatId);
-          user = await getUser(chatId);
-        }
+      }
+
+      // New user or incomplete — upsert so we never fail on unique constraint
+      const { error: upsertError } = await db.from('users').upsert(
+        {
+          telegram_chat_id: chatId,
+          telegram_username: username,
+          onboarding_state: { step: 0, data: {} },
+          onboarding_complete: false,
+        },
+        { onConflict: 'telegram_chat_id', ignoreDuplicates: false }
+      );
+
+      if (upsertError) {
+        console.error('[start] upsert error:', upsertError);
+        await sendMessage(chatId, `Something went wrong starting your profile. Please try again.`);
+        return NextResponse.json({ ok: true });
+      }
+
+      user = await getUser(chatId);
+
+      if (!user) {
+        console.error('[start] user still null after upsert for chatId:', chatId);
+        await sendMessage(chatId, `Something went wrong. Please try again.`);
+        return NextResponse.json({ ok: true });
       }
 
       const step = safeStep(user?.onboarding_state);
