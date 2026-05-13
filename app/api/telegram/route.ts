@@ -69,8 +69,8 @@ const OB_STEPS: ObStep[] = [
       ['Manage condition 🩺', 'manage_condition'],
     ],
   },
-  { key: 'weight_kg', q: 'Current weight in kg?\n_(just the number, e.g. 72)_', type: 'number' },
-  { key: 'height_cm', q: 'Height in cm?\n_(e.g. 175)_', type: 'number' },
+  { key: 'weight_kg', q: 'Current weight in kg? (just the number, e.g. 72)', type: 'number' },
+  { key: 'height_cm', q: 'Height in cm? (e.g. 175)', type: 'number' },
   { key: 'age', q: 'Your age?', type: 'number' },
   {
     key: 'sex',
@@ -137,6 +137,19 @@ const OB_STEPS: ObStep[] = [
   },
 ];
 
+function safeStep(onboarding_state: unknown): number {
+  if (!onboarding_state || typeof onboarding_state !== 'object') return 0;
+  const s = (onboarding_state as Record<string, unknown>).step;
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, OB_STEPS.length) : 0;
+}
+
+function safeData(onboarding_state: unknown): Record<string, unknown> {
+  if (!onboarding_state || typeof onboarding_state !== 'object') return {};
+  const d = (onboarding_state as Record<string, unknown>).data;
+  return d && typeof d === 'object' ? (d as Record<string, unknown>) : {};
+}
+
 function computeMacros(data: Record<string, unknown>) {
   const weight = Number(data.weight_kg) || 70;
   const height = Number(data.height_cm) || 170;
@@ -163,33 +176,29 @@ function computeMacros(data: Record<string, unknown>) {
   return { target_kcal, target_protein_g, target_carbs_g, target_fat_g };
 }
 
-async function sendOnboardingQuestion(chatId: number, step: ObStep): Promise<void> {
-  if (step.type === 'buttons' && step.options) {
+async function sendOnboardingQuestion(chatId: number, stepDef: ObStep): Promise<void> {
+  if (stepDef.type === 'buttons' && stepDef.options) {
     const rows: { text: string; callback_data: string }[][] = [];
-    for (let i = 0; i < step.options.length; i += 2) {
+    for (let i = 0; i < stepDef.options.length; i += 2) {
       rows.push(
-        step.options.slice(i, i + 2).map(([label, value]) => ({
+        stepDef.options.slice(i, i + 2).map(([label, value]) => ({
           text: label,
           callback_data: `ob:${value}`,
         }))
       );
     }
-    await sendButtons(chatId, step.q, rows);
+    await sendButtons(chatId, stepDef.q, rows);
   } else {
-    await sendMessage(chatId, step.q);
+    await sendMessage(chatId, stepDef.q);
   }
 }
 
-async function finalizeOnboarding(
-  chatId: number,
-  data: Record<string, unknown>
-): Promise<void> {
+async function finalizeOnboarding(chatId: number, data: Record<string, unknown>): Promise<void> {
   const db = getServerClient();
   const macros = computeMacros(data);
-  const worksOut =
-    data.works_out === 'true' || data.works_out === true || data.works_out === 'sometimes';
+  const worksOut = data.works_out === 'true' || data.works_out === true || data.works_out === 'sometimes';
 
-  await db.from('users').update({
+  const { error } = await db.from('users').update({
     goal: data.goal,
     weight_kg: data.weight_kg,
     height_cm: data.height_cm,
@@ -206,6 +215,8 @@ async function finalizeOnboarding(
     onboarding_complete: true,
     onboarding_state: { step: OB_STEPS.length, data },
   }).eq('telegram_chat_id', chatId);
+
+  if (error) console.error('[finalize] DB update error:', error);
 
   await sendMessage(
     chatId,
@@ -234,32 +245,30 @@ async function finalizeOnboarding(
   }
 }
 
-async function handleOnboardingStep(
-  chatId: number,
-  user: Record<string, unknown>,
-  input: string,
-  callbackQueryId: string | null
-): Promise<void> {
+// Called only when user exists and onboarding is incomplete.
+// input is the raw messageText (callback data like "ob:lose_fat" or typed text like "72").
+async function handleOnboardingStep(chatId: number, user: Record<string, unknown>, input: string): Promise<void> {
   const db = getServerClient();
-  const state = (user.onboarding_state as { step: number; data: Record<string, unknown> }) ||
-    { step: 0, data: {} };
-  const step = state.step;
-  const data = { ...state.data };
+  const step = safeStep(user.onboarding_state);
+  const data = { ...safeData(user.onboarding_state) };
+
+  console.log(`[ob] chatId=${chatId} step=${step} input=${input}`);
 
   const currentDef = OB_STEPS[step];
   if (!currentDef) {
+    // Past the last step — finalize
     await finalizeOnboarding(chatId, data);
     return;
   }
 
-  // Strip ob: prefix from callback data
+  // Strip ob: prefix from inline button callbacks
   const value = input.startsWith('ob:') ? input.slice(3) : input.trim();
 
-  // Validate
+  // Validate and parse
   let parsed: unknown = value;
   if (currentDef.type === 'number') {
     const num = parseFloat(value);
-    if (isNaN(num) || num <= 0) {
+    if (!Number.isFinite(num) || num <= 0) {
       await sendMessage(chatId, `Please send a valid number.\n\n${currentDef.q}`);
       return;
     }
@@ -267,17 +276,17 @@ async function handleOnboardingStep(
   } else if (currentDef.type === 'buttons' && currentDef.options) {
     const validValues = currentDef.options.map(([, v]) => v);
     if (!validValues.includes(value)) {
+      // Re-send the question — they may have clicked an old button
       await sendOnboardingQuestion(chatId, currentDef);
       return;
     }
   }
 
+  // Convert string booleans
+  if (parsed === 'true') parsed = true;
+  if (parsed === 'false') parsed = false;
+
   data[currentDef.key] = parsed;
-
-  if (callbackQueryId) {
-    await answerCallbackQuery(callbackQueryId);
-  }
-
   const nextStep = step + 1;
 
   if (nextStep >= OB_STEPS.length) {
@@ -285,9 +294,16 @@ async function handleOnboardingStep(
     return;
   }
 
-  await db.from('users')
+  // Persist the new step BEFORE sending the next question
+  const { error } = await db.from('users')
     .update({ onboarding_state: { step: nextStep, data } })
     .eq('telegram_chat_id', chatId);
+
+  if (error) {
+    console.error(`[ob] state update failed at step ${step}:`, error);
+    await sendMessage(chatId, `Something went wrong saving your answer. Please try again.`);
+    return;
+  }
 
   await sendOnboardingQuestion(chatId, OB_STEPS[nextStep]);
 }
@@ -304,50 +320,63 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    const chatId: number = body.message?.chat?.id || body.callback_query?.message?.chat?.id;
-    const messageText: string = body.message?.text || body.callback_query?.data || '';
-    const callbackQueryId: string | null = body.callback_query?.id || null;
+    const chatId: number = body.message?.chat?.id ?? body.callback_query?.message?.chat?.id;
+    const messageText: string = body.message?.text ?? body.callback_query?.data ?? '';
+    const callbackQueryId: string | null = body.callback_query?.id ?? null;
     const username: string =
-      body.message?.from?.username ||
-      body.message?.from?.first_name ||
-      body.callback_query?.from?.username ||
-      body.callback_query?.from?.first_name ||
+      body.message?.from?.username ??
+      body.message?.from?.first_name ??
+      body.callback_query?.from?.username ??
+      body.callback_query?.from?.first_name ??
       '';
 
     if (!chatId) return NextResponse.json({ ok: true });
 
+    // Always dismiss the loading spinner on inline buttons immediately
+    if (callbackQueryId) {
+      await answerCallbackQuery(callbackQueryId);
+    }
+
     // ---- /start ----
     if (messageText === '/start') {
       let user = await getUser(chatId);
+
       if (!user) {
+        // New user — create with fresh onboarding state
         await db.from('users').insert({
           telegram_chat_id: chatId,
           telegram_username: username,
           onboarding_state: { step: 0, data: {} },
         });
         user = await getUser(chatId);
-      }
-
-      if (!user || !user.onboarding_complete) {
-        const state = (user?.onboarding_state as { step: number; data: Record<string, unknown> }) ||
-          { step: 0, data: {} };
-        const step = Math.min(state.step, OB_STEPS.length - 1);
-
-        if (step === 0 && Object.keys(state.data || {}).length === 0) {
-          await sendMessage(
-            chatId,
-            `Hey ${username || 'there'}! Welcome to *Lockin* 🔒\n\nI'm your AI nutrition coach — meal plans, macro tracking, pantry management, and workout guidance.\n\nLet's set up your profile. 12 quick questions. ⚡`
-          );
-        } else {
-          await sendMessage(chatId, `Welcome back! Let's pick up where we left off.`);
-        }
-        await sendOnboardingQuestion(chatId, OB_STEPS[step]);
-      } else {
+      } else if (user.onboarding_complete) {
         await sendMessage(
           chatId,
           `Welcome back ${username || 'there'}! Day ${(user.current_streak || 0) + 1}. You're locked in. 🔒\n\nSend /plan for today's meals.`
         );
+        return NextResponse.json({ ok: true });
+      } else {
+        // Existing user, not done — ensure onboarding_state is a valid object
+        if (!user.onboarding_state || typeof user.onboarding_state !== 'object') {
+          await db.from('users')
+            .update({ onboarding_state: { step: 0, data: {} } })
+            .eq('telegram_chat_id', chatId);
+          user = await getUser(chatId);
+        }
       }
+
+      const step = safeStep(user?.onboarding_state);
+
+      if (step === 0) {
+        await sendMessage(
+          chatId,
+          `Hey ${username || 'there'}! Welcome to *Lockin* 🔒\n\nI'm your AI nutrition coach — meal plans, macro tracking, pantry management, and workout guidance.\n\nLet's set up your profile. 12 quick questions. ⚡`
+        );
+      } else {
+        await sendMessage(chatId, `Welcome back! Resuming from question ${step + 1} of ${OB_STEPS.length}.`);
+      }
+
+      await sendOnboardingQuestion(chatId, OB_STEPS[step]);
       return NextResponse.json({ ok: true });
     }
 
@@ -376,17 +405,18 @@ export async function POST(req: NextRequest) {
 
     // ---- Route to onboarding if not complete ----
     const user = await getUser(chatId);
-    if (!user || !user.onboarding_complete) {
-      if (callbackQueryId) await answerCallbackQuery(callbackQueryId);
-      if (!user) {
-        await sendMessage(chatId, `Send /start to begin.`);
-        return NextResponse.json({ ok: true });
-      }
-      await handleOnboardingStep(chatId, user, messageText, callbackQueryId);
+
+    if (!user) {
+      await sendMessage(chatId, `Send /start to begin.`);
       return NextResponse.json({ ok: true });
     }
 
-    // ---- All other messages: route through Gemini ----
+    if (!user.onboarding_complete) {
+      await handleOnboardingStep(chatId, user, messageText);
+      return NextResponse.json({ ok: true });
+    }
+
+    // ---- Completed onboarding: route through Gemini ----
     await sendTyping(chatId);
 
     const [plan, pantry, todayLog, features] = await Promise.all([
@@ -397,7 +427,6 @@ export async function POST(req: NextRequest) {
     ]);
 
     const systemPrompt = await buildSystemPrompt(user, plan, pantry, todayLog);
-
     void features;
 
     const instamartConfig = await getInstamartConfig();
