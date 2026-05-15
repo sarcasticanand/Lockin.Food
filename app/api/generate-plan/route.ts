@@ -71,6 +71,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to save plan' }, { status: 500 });
     }
 
+    // Notify user on Telegram if they have a chat ID
+    if (user.telegram_chat_id) {
+      const TGAPI = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+      await fetch(`${TGAPI}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: user.telegram_chat_id,
+          text: `✅ Your 7-day meal plan is ready!\n\nSend /plan to see today's meals.`,
+          parse_mode: 'Markdown',
+        }),
+      }).catch(() => {});
+    }
+
     return NextResponse.json({ success: true, plan: newPlan });
   } catch (error) {
     console.error('[generate-plan] error:', error);

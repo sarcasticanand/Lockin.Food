@@ -171,6 +171,7 @@ function OnboardingContent() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [computedMacros, setComputedMacros] = useState<ReturnType<typeof calculateMacros> | null>(null);
+  const [saved, setSaved] = useState(false);
 
   const [profile, setProfile] = useState<Profile>({
     telegramChatId: tgId ? parseInt(tgId, 10) : null,
@@ -330,8 +331,7 @@ function OnboardingContent() {
         }).catch(() => {});
       }
 
-      // Open Telegram bot in new tab / trigger deep link
-      window.open("https://t.me/kanshi_bot", "_blank");
+      setSaved(true);
     } catch (e) {
       console.error("Submit error:", e);
       setSubmitError("Something went wrong. Please try again.");
@@ -766,8 +766,8 @@ function OnboardingContent() {
           </StepCard>
         )}
 
-        {/* ── Step 10: Reveal ── */}
-        {step === 10 && computedMacros && (
+        {/* ── Step 10: Confirm targets ── */}
+        {step === 10 && computedMacros && !saved && (
           <div className="space-y-4">
             <div className="rounded-2xl p-8 text-center" style={{ backgroundColor: "#2D4A3E", color: "#FFFFFF" }}>
               <div className="text-4xl font-bold mb-1" style={{ fontFamily: "Fraunces, Georgia, serif" }}>
@@ -789,7 +789,6 @@ function OnboardingContent() {
                   </span>
                 </div>
               </div>
-
               <div className="rounded-xl p-5 mb-4 text-center" style={{ backgroundColor: "rgba(45,74,62,0.06)" }}>
                 <div className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: "#5A7A6B" }}>Daily calorie target</div>
                 <div className="text-5xl font-bold" style={{ color: "#2D4A3E", fontFamily: "Fraunces, Georgia, serif" }}>
@@ -799,7 +798,6 @@ function OnboardingContent() {
                   kcal/day · {computedMacros.workout_day_kcal.toLocaleString()} on workout days
                 </div>
               </div>
-
               <div className="grid grid-cols-3 gap-3">
                 {[
                   { label: "Protein", value: computedMacros.target_protein_g, color: "#E89B7C" },
@@ -823,13 +821,129 @@ function OnboardingContent() {
             <button onClick={handleSubmit} disabled={submitting}
               className="w-full py-4 rounded-2xl font-semibold text-white transition-colors"
               style={{ backgroundColor: submitting ? "#5A7A6B" : "#2D4A3E" }}>
-              {submitting ? "Saving your profile..." : "Save & open Telegram →"}
+              {submitting ? "Saving & generating your plan..." : "Save & generate my plan →"}
             </button>
-            <p className="text-center text-xs" style={{ color: "#6B7268" }}>
-              After saving, go to Telegram and send /plan to generate your first week.
-            </p>
           </div>
         )}
+
+        {/* ── Step 10: Success dashboard (after save) ── */}
+        {step === 10 && computedMacros && saved && (() => {
+          const deficit = computedMacros.tdee - computedMacros.target_kcal;
+          const weeklyLossKg = Math.min(deficit > 0 ? (deficit * 7) / 7700 : 0, 1.0);
+          const weeksToGoal = weeklyLossKg > 0 ? Math.ceil(profile.target_kg / weeklyLossKg) : profile.target_weeks;
+          const projectedDate = new Date();
+          projectedDate.setDate(projectedDate.getDate() + weeksToGoal * 7);
+          const projectedLabel = projectedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+
+          const milestones = [
+            { label: '4 weeks', kg: +(profile.weight_kg - weeklyLossKg * 4).toFixed(1) },
+            { label: '8 weeks', kg: +(profile.weight_kg - weeklyLossKg * 8).toFixed(1) },
+            { label: `${weeksToGoal} weeks`, kg: +(profile.weight_kg - profile.target_kg).toFixed(1) },
+          ];
+
+          return (
+            <div className="space-y-4">
+              {/* Header */}
+              <div className="rounded-2xl p-8 text-center" style={{ backgroundColor: "#2D4A3E", color: "#FFFFFF" }}>
+                <div className="text-5xl mb-3">🔒</div>
+                <div className="text-3xl font-bold mb-2" style={{ fontFamily: "Fraunces, Georgia, serif" }}>
+                  Profile saved!
+                </div>
+                <p className="text-sm" style={{ color: "#7BA088" }}>
+                  Your 7-day meal plan is being generated.<br />You&apos;ll get a Telegram notification when it&apos;s ready.
+                </p>
+              </div>
+
+              {/* Goal projection */}
+              {profile.goal === 'fat_loss' && weeklyLossKg > 0 && (
+                <div className="rounded-2xl p-6" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
+                  <div className="text-sm font-bold uppercase tracking-widest mb-4" style={{ color: "#5A7A6B" }}>Your goal projection</div>
+                  <div className="flex items-baseline gap-2 mb-1">
+                    <span className="text-3xl font-bold" style={{ color: "#2D4A3E", fontFamily: "Fraunces, Georgia, serif" }}>
+                      -{profile.target_kg} kg
+                    </span>
+                    <span className="text-sm" style={{ color: "#6B7268" }}>by {projectedLabel}</span>
+                  </div>
+                  <p className="text-xs mb-5" style={{ color: "#6B7268" }}>
+                    At {weeklyLossKg.toFixed(2)} kg/week — {deficit} kcal/day deficit
+                  </p>
+                  <div className="space-y-3">
+                    {milestones.map((m, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <div className="w-20 text-xs font-medium" style={{ color: "#6B7268" }}>{m.label}</div>
+                        <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ backgroundColor: "#F0EDE6" }}>
+                          <div className="h-full rounded-full" style={{
+                            backgroundColor: "#2D4A3E",
+                            width: `${Math.min(((i + 1) / milestones.length) * 100, 100)}%`,
+                            opacity: 0.4 + (i * 0.2),
+                          }} />
+                        </div>
+                        <div className="w-16 text-xs font-bold text-right" style={{ color: "#2D4A3E" }}>{m.kg} kg</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {profile.goal === 'muscle_gain' && (
+                <div className="rounded-2xl p-6" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
+                  <div className="text-sm font-bold uppercase tracking-widest mb-3" style={{ color: "#5A7A6B" }}>Your goal projection</div>
+                  <div className="space-y-3">
+                    {[
+                      { label: '4 weeks', muscle: '+0.8 kg lean mass', note: 'Strength noticeably up' },
+                      { label: '8 weeks', muscle: '+1.6 kg lean mass', note: 'Visible muscle definition' },
+                      { label: '12 weeks', muscle: '+2.5 kg lean mass', note: 'Significant body recomposition' },
+                    ].map((m, i) => (
+                      <div key={i} className="flex justify-between items-center p-3 rounded-xl" style={{ backgroundColor: "#FAF8F3" }}>
+                        <span className="text-sm font-medium" style={{ color: "#6B7268" }}>{m.label}</span>
+                        <div className="text-right">
+                          <div className="text-sm font-bold" style={{ color: "#2D4A3E" }}>{m.muscle}</div>
+                          <div className="text-xs" style={{ color: "#6B7268" }}>{m.note}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Daily targets */}
+              <div className="rounded-2xl p-6" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
+                <div className="text-sm font-bold uppercase tracking-widest mb-4" style={{ color: "#5A7A6B" }}>Daily targets</div>
+                <div className="rounded-xl p-4 text-center mb-4" style={{ backgroundColor: "rgba(45,74,62,0.06)" }}>
+                  <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: "#5A7A6B" }}>Calories</div>
+                  <div className="text-4xl font-bold" style={{ color: "#2D4A3E", fontFamily: "Fraunces, Georgia, serif" }}>
+                    {computedMacros.target_kcal.toLocaleString()}
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: "#6B7268" }}>{computedMacros.workout_day_kcal.toLocaleString()} on workout days</div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: "Protein", value: computedMacros.target_protein_g, color: "#E89B7C" },
+                    { label: "Carbs", value: computedMacros.target_carbs_g, color: "#D4A574" },
+                    { label: "Fat", value: computedMacros.target_fat_g, color: "#7BA088" },
+                  ].map(m => (
+                    <div key={m.label} className="rounded-xl p-3 text-center" style={{ backgroundColor: "#FAF8F3" }}>
+                      <div className="text-2xl font-bold" style={{ color: m.color }}>{m.value}<span className="text-sm">g</span></div>
+                      <div className="text-xs mt-0.5" style={{ color: "#6B7268" }}>{m.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* CTA */}
+              <div className="rounded-2xl p-6 text-center" style={{ backgroundColor: "#FAF8F3" }}>
+                <p className="text-sm mb-4" style={{ color: "#6B7268" }}>
+                  Open the bot on Telegram — your plan will be there waiting.
+                </p>
+                <a href="https://t.me/kanshi_bot"
+                  className="inline-block w-full py-4 rounded-2xl font-semibold text-white text-center"
+                  style={{ backgroundColor: "#2D4A3E" }}>
+                  Open Telegram → send /plan
+                </a>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Navigation */}
         {step < TOTAL_STEPS && (
