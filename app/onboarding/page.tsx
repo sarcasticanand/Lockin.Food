@@ -251,18 +251,12 @@ function OnboardingContent() {
     setSubmitError("");
     setSubmitting(true);
 
-    if (!tgId) {
-      setSubmitting(false);
-      setSubmitError("⚠️ No Telegram link found. Open the bot (@kanshi_bot) first, send /start, then tap the link it gives you to come back here.");
-      return;
-    }
-
     try {
       const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          telegramChatId: parseInt(tgId),
+          telegramChatId: tgId ? parseInt(tgId) : null,
           goal: profile.goal,
           condition: profile.condition || null,
           target_kg: profile.target_kg,
@@ -343,12 +337,7 @@ function OnboardingContent() {
     ? Math.min(profile.target_kg / profile.target_weeks, 1.0).toFixed(2)
     : null;
 
-  // ── No tg param warning ──
-  const noTgWarning = !tgId && (
-    <div className="mb-5 p-4 rounded-xl text-sm" style={{ backgroundColor: "rgba(212,165,116,0.15)", color: "#D4A574" }}>
-      To connect with the Telegram bot, start there first — find <strong>@kanshi_bot</strong> on Telegram, send any message, and tap the link it gives you.
-    </div>
-  );
+  // no tgId warning removed — saving now works with or without Telegram link
 
   return (
     <div className="min-h-screen py-10 px-4" style={{ backgroundColor: "#FAF8F3" }}>
@@ -359,7 +348,6 @@ function OnboardingContent() {
           </span>
         </div>
 
-        {noTgWarning}
         <ProgressBar step={step} />
         <div className="mt-6" />
 

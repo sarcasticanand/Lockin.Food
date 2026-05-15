@@ -7,32 +7,45 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { telegramChatId, ...profileData } = body;
 
-    if (!telegramChatId) {
-      return NextResponse.json({ error: 'telegramChatId required' }, { status: 400 });
-    }
+    const chatId = telegramChatId ? Number(telegramChatId) : null;
 
-    const chatId = Number(telegramChatId);
+    let userId: string | undefined;
 
-    // Try UPDATE first (user created when they sent /start)
-    const { data: updated, error: updateError } = await db
-      .from('users')
-      .update({ ...profileData, updated_at: new Date().toISOString() })
-      .eq('telegram_chat_id', chatId)
-      .select()
-      .single();
+    if (chatId) {
+      // User came from Telegram — try UPDATE first (user created when they sent /start)
+      const { data: updated, error: updateError } = await db
+        .from('users')
+        .update({ ...profileData, updated_at: new Date().toISOString() })
+        .eq('telegram_chat_id', chatId)
+        .select()
+        .single();
 
-    let userId: string | undefined = updated?.id;
+      userId = updated?.id;
 
-    if (updateError || !updated) {
-      // User doesn't exist yet — INSERT
+      if (updateError || !updated) {
+        // User doesn't exist yet — INSERT with telegram_chat_id
+        const { data: inserted, error: insertError } = await db
+          .from('users')
+          .insert({ telegram_chat_id: chatId, ...profileData })
+          .select()
+          .single();
+
+        if (insertError || !inserted) {
+          console.error('[onboarding] insert error:', insertError);
+          return NextResponse.json({ error: insertError?.message || 'Failed to save profile' }, { status: 500 });
+        }
+        userId = inserted.id;
+      }
+    } else {
+      // No Telegram — just INSERT a new user record (web-only signup)
       const { data: inserted, error: insertError } = await db
         .from('users')
-        .insert({ telegram_chat_id: chatId, ...profileData })
+        .insert({ ...profileData })
         .select()
         .single();
 
       if (insertError || !inserted) {
-        console.error('[onboarding] insert error:', insertError);
+        console.error('[onboarding] insert error (no tg):', insertError);
         return NextResponse.json({ error: insertError?.message || 'Failed to save profile' }, { status: 500 });
       }
       userId = inserted.id;
@@ -42,7 +55,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No user ID returned' }, { status: 500 });
     }
 
-    // Trigger plan generation (awaited so we can return planId)
+    // Trigger plan generation (awaited so we can return planReady)
     let planReady = false;
     try {
       const res = await fetch(`${process.env.APP_URL}/api/generate-plan`, {
