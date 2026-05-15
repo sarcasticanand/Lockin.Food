@@ -249,13 +249,13 @@ function OnboardingContent() {
   async function handleSubmit() {
     if (!computedMacros) return;
     setSubmitError("");
+    setSubmitting(true);
 
     if (!tgId) {
-      setSubmitError("Please open this page from the link the Telegram bot sent you. Find the bot (@kanshi_bot) on Telegram first, send any message, and tap the link it gives you.");
+      setSubmitting(false);
+      setSubmitError("⚠️ No Telegram link found. Open the bot (@kanshi_bot) first, send /start, then tap the link it gives you to come back here.");
       return;
     }
-
-    setSubmitting(true);
 
     try {
       const res = await fetch("/api/onboarding", {
@@ -311,7 +311,10 @@ function OnboardingContent() {
       setSavedUserId(data.userId);
       setSaved(true);
 
-      // Fetch the generated plan
+      // Open Telegram bot automatically
+      window.open("https://t.me/kanshi_bot", "_blank");
+
+      // Fetch the generated plan (may take 30s — show loading state)
       setPlanLoading(true);
       try {
         const planRes = await fetch(`/api/plan?uid=${data.userId}`);
