@@ -147,42 +147,119 @@ export async function buildMealPlanPrompt(
   user: Record<string, unknown>,
   pantry: Record<string, unknown>[]
 ): Promise<string> {
-  const template = await getPromptTemplate('meal_plan_prompt_template');
-
-  const dietParts: string[] = [];
-  if (user.okay_with_dairy) dietParts.push('dairy ok'); else dietParts.push('no dairy');
-  if (user.okay_with_eggs) dietParts.push('eggs ok'); else dietParts.push('no eggs');
-  if (user.okay_with_meat_fish) dietParts.push('meat/fish ok'); else dietParts.push('no meat/fish');
-
-  const pantrySummary = pantry.length > 0
-    ? pantry.map(p => `${p.name}: ${p.quantity}${p.unit}`).join(', ')
-    : 'Empty';
-
+  // Self-contained, India-specific prompt — does not rely on DB template
   const targetKcal = (user.target_kcal as number) || 2000;
+  const workoutDayKcal = Math.round(targetKcal * 1.12);
   const workoutDays = (user.workout_days as string[]) || [];
 
-  const replacements: Record<string, string> = {
-    '{{goal}}': (user.goal as string) || '',
-    '{{target_info}}': user.target_kg ? `(${user.target_kg}kg in ${user.target_weeks} weeks)` : '',
-    '{{target_kcal}}': String(targetKcal),
-    '{{workout_day_kcal}}': String(Math.round(targetKcal * 1.12)),
-    '{{target_protein_g}}': String(user.target_protein_g || ''),
-    '{{target_carbs_g}}': String(user.target_carbs_g || ''),
-    '{{target_fat_g}}': String(user.target_fat_g || ''),
-    '{{diet_summary}}': dietParts.join(', '),
-    '{{food_style}}': ((user.food_style as string[]) || []).join(', ') || '',
-    '{{food_style_notes}}': (user.food_style_notes as string) || '',
-    '{{region}}': (user.region as string) || '',
-    '{{dislikes}}': ((user.dislikes as string[]) || []).join(', ') || 'none',
-    '{{dislikes_notes}}': (user.dislikes_notes as string) || '',
-    '{{allergies}}': ((user.allergies as string[]) || []).join(', ') || 'none',
-    '{{max_cooking_time}}': (user.max_cooking_time as string) || '',
-    '{{workout_days}}': workoutDays.join(', ') || 'none',
-    '{{workout_type}}': (user.workout_type as string) || 'none',
-    '{{pantry_summary}}': pantrySummary,
+  const dietLines: string[] = [];
+  if (!user.okay_with_dairy) dietLines.push('NO dairy (no milk, paneer, curd, ghee, cheese)');
+  if (!user.okay_with_eggs) dietLines.push('NO eggs');
+  if (!user.okay_with_meat_fish) dietLines.push('NO meat or fish — vegetarian only');
+
+  const wakeTime = (user.wake_time as string) || '07:00';
+  const sleepTime = (user.sleep_time as string) || '23:00';
+
+  // Derive meal times from wake/sleep
+  const [wakeH] = wakeTime.split(':').map(Number);
+  const mealTimes = {
+    early_morning: `${String(wakeH).padStart(2,'0')}:00`,
+    breakfast: `${String(wakeH + 1).padStart(2,'0')}:15`,
+    mid_morning: `${String(wakeH + 3).padStart(2,'0')}:30`,
+    lunch: `${String(wakeH + 6).padStart(2,'0')}:00`,
+    evening_snack: `${String(wakeH + 10).padStart(2,'0')}:00`,
+    dinner: `${String(wakeH + 13).padStart(2,'0')}:00`,
+    pre_bed: `${String(wakeH + 15).padStart(2,'0')}:30`,
   };
 
-  return applyReplacements(template, replacements);
+  const pantrySummary = pantry.length > 0
+    ? pantry.map(p => `${p.name} (${p.quantity}${p.unit})`).join(', ')
+    : 'standard Indian pantry (rice, dal, roti atta, spices, oil)';
+
+  const cookingMap: Record<string, string> = {
+    zero: 'no cooking at all — only ready-to-eat foods, fruits, pre-made items',
+    quick: 'max 20 minutes of cooking per meal — simple, one-pan dishes',
+    medium: '30-45 minutes cooking OK — can make dal, sabzi, rice',
+    long: 'happy to cook 45+ minutes — elaborate meals fine',
+  };
+  const cookingPref = cookingMap[(user.max_cooking_time as string)] || 'moderate cooking';
+
+  const goalMap: Record<string, string> = {
+    lose_fat: `Fat loss — create a ${targetKcal} kcal deficit diet. High protein to preserve muscle.`,
+    gain_muscle: `Muscle gain — ${targetKcal} kcal surplus diet. Very high protein, adequate carbs for training fuel.`,
+    clean_eating: `Clean eating at maintenance (${targetKcal} kcal). Whole foods, minimal processing.`,
+    manage_condition: `Managing ${(user.condition as string) || 'a health condition'} — ${targetKcal} kcal, balanced macros, whole foods.`,
+  };
+  const goalDesc = goalMap[(user.goal as string)] || `Goal: ${user.goal}, ${targetKcal} kcal/day`;
+
+  return `You are a professional nutritionist and meal planner specialising in Indian cuisine. Generate a personalised 7-day meal plan in strict JSON format.
+
+USER PROFILE:
+- Goal: ${goalDesc}
+- Weight: ${user.weight_kg}kg | Height: ${user.height_cm}cm | Age: ${user.age} | Sex: ${user.sex}
+- Activity: ${user.activity_level}
+- Food style: ${(user.food_style_notes as string) || (user.region as string) || 'Indian'}
+- Region/cuisine: ${(user.region as string) || 'Mixed Indian'}
+- Diet restrictions: ${dietLines.length > 0 ? dietLines.join('; ') : 'None — omnivore'}
+- Allergies: ${((user.allergies as string[]) || []).join(', ') || 'None'}
+- Dislikes: ${((user.dislikes as string[]) || []).join(', ') || 'None'}${(user.dislikes_notes as string) ? `\n- Additional food notes: ${user.dislikes_notes}` : ''}
+- Cooking time available: ${cookingPref}
+- Weekly grocery budget: ₹${user.budget_weekly || 2000}
+- Wake time: ${wakeTime} | Sleep time: ${sleepTime}
+- Workout days: ${workoutDays.join(', ') || 'none'} (${workoutDayKcal} kcal on workout days, ${targetKcal} on rest days)
+- Pantry items available: ${pantrySummary}
+
+DAILY MACRO TARGETS:
+- Calories: ${targetKcal} kcal (${workoutDayKcal} on workout days)
+- Protein: ${user.target_protein_g}g
+- Carbs: ${user.target_carbs_g}g
+- Fat: ${user.target_fat_g}g
+
+MEAL SLOT TIMES (based on wake time ${wakeTime}):
+- early_morning: ${mealTimes.early_morning}
+- breakfast: ${mealTimes.breakfast}
+- mid_morning: ${mealTimes.mid_morning}
+- lunch: ${mealTimes.lunch}
+- evening_snack: ${mealTimes.evening_snack}
+- dinner: ${mealTimes.dinner}
+- pre_bed: ${mealTimes.pre_bed}
+
+INSTRUCTIONS:
+1. Name SPECIFIC real dishes — not generic like "protein + carb". Write actual Indian dish names: "Moong dal chilla with mint chutney", "2 whole wheat roti + rajma curry + cucumber raita", "Grilled chicken tikka with dal fry and brown rice".
+2. Use the user's regional cuisine and food style as the base. If they eat North Indian food, use dal-roti-sabzi. If South Indian, use idli-sambar-rasam. If mixed, vary across the week.
+3. Every meal must have specific quantities: "2 rotis", "1 cup dal", "100g chicken", "1 medium banana".
+4. Scale calories correctly: workout days get ${workoutDayKcal} kcal (extra carbs before/after workout), rest days get ${targetKcal} kcal.
+5. Never repeat the same meal on consecutive days for the same slot.
+6. Respect ALL dietary restrictions strictly.
+7. Keep within the ₹${user.budget_weekly || 2000}/week grocery budget — use seasonal, affordable ingredients.
+8. Include early_morning (light, e.g., warm water + soaked almonds) and pre_bed (light, e.g., warm milk or nuts) slots.
+
+OUTPUT FORMAT — return ONLY valid JSON, no markdown, no commentary:
+{
+  "days": [
+    {
+      "day_index": 0,
+      "day_name": "Sunday",
+      "is_workout_day": false,
+      "total_kcal": ${targetKcal},
+      "slots": [
+        {
+          "slot": "early_morning",
+          "time": "${mealTimes.early_morning}",
+          "meal": "Warm water with soaked almonds (6) and raisins (10)",
+          "kcal": 80,
+          "protein_g": 2,
+          "carbs_g": 8,
+          "fat_g": 5,
+          "prep_time_min": 0,
+          "ingredients": ["almonds", "raisins", "water"]
+        }
+      ]
+    }
+  ]
+}
+
+Generate all 7 days (day_index 0=Sunday through 6=Saturday). Each day must have all 7 slots. Return only the JSON object.`;
 }
 
 function applyReplacements(template: string, replacements: Record<string, string>): string {

@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { calculateMacros, getBMILabel } from "@/lib/macro-calculator";
-import { createClient } from "@supabase/supabase-js";
 
 // ============================================================
 // TYPES
@@ -172,6 +171,12 @@ function OnboardingContent() {
   const [submitError, setSubmitError] = useState("");
   const [computedMacros, setComputedMacros] = useState<ReturnType<typeof calculateMacros> | null>(null);
   const [saved, setSaved] = useState(false);
+  const [savedUserId, setSavedUserId] = useState<string | null>(null);
+  const [weekPlan, setWeekPlan] = useState<Record<string, unknown>[] | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [activeDay, setActiveDay] = useState(new Date().getDay());
+  const [editingSlot, setEditingSlot] = useState<{ dayIndex: number; slotName: string } | null>(null);
+  const [editText, setEditText] = useState("");
 
   const [profile, setProfile] = useState<Profile>({
     telegramChatId: tgId ? parseInt(tgId, 10) : null,
@@ -246,92 +251,79 @@ function OnboardingContent() {
     setSubmitError("");
 
     if (!tgId) {
-      setSubmitError("Please open this page from the link the Telegram bot sent you. Find the bot (@lockinbot) on Telegram first, send /start, and tap the link it gives you.");
+      setSubmitError("Please open this page from the link the Telegram bot sent you. Find the bot (@kanshi_bot) on Telegram first, send any message, and tap the link it gives you.");
       return;
     }
 
     setSubmitting(true);
 
     try {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
+      const res = await fetch("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          telegramChatId: parseInt(tgId),
+          goal: profile.goal,
+          condition: profile.condition || null,
+          target_kg: profile.target_kg,
+          target_weeks: profile.target_weeks,
+          height_cm: profile.height_cm,
+          weight_kg: profile.weight_kg,
+          age: profile.age,
+          sex: profile.sex,
+          activity_level: profile.activity_level,
+          okay_with_dairy: profile.okay_with_dairy,
+          okay_with_eggs: profile.okay_with_eggs,
+          okay_with_meat_fish: profile.okay_with_meat_fish,
+          food_style: profile.food_style,
+          food_style_notes: [profile.food_style_notes, profile.food_region_note].filter(Boolean).join(" | ") || null,
+          allergies: profile.allergies,
+          dislikes: profile.dislikes,
+          dislikes_notes: profile.dislikes_notes || null,
+          works_out: profile.works_out,
+          workout_type: profile.workout_types.join(", ") || null,
+          workout_days: profile.workout_days,
+          workout_time: profile.workout_time || null,
+          region: profile.region || null,
+          budget_weekly: profile.budget_weekly,
+          max_cooking_time: profile.max_cooking_time,
+          meal_preps: profile.meal_preps,
+          wake_time: profile.wake_time,
+          sleep_time: profile.sleep_time,
+          bmi: computedMacros.bmi,
+          bmr: computedMacros.bmr,
+          tdee: computedMacros.tdee,
+          target_kcal: computedMacros.target_kcal,
+          target_protein_g: computedMacros.target_protein_g,
+          target_carbs_g: computedMacros.target_carbs_g,
+          target_fat_g: computedMacros.target_fat_g,
+          onboarding_complete: true,
+        }),
+      });
 
-      const updateData = {
-        goal: profile.goal,
-        condition: profile.condition || null,
-        target_kg: profile.target_kg,
-        target_weeks: profile.target_weeks,
-        height_cm: profile.height_cm,
-        weight_kg: profile.weight_kg,
-        age: profile.age,
-        sex: profile.sex,
-        activity_level: profile.activity_level,
-        okay_with_dairy: profile.okay_with_dairy,
-        okay_with_eggs: profile.okay_with_eggs,
-        okay_with_meat_fish: profile.okay_with_meat_fish,
-        food_style: profile.food_style,
-        food_style_notes: [profile.food_style_notes, profile.food_region_note].filter(Boolean).join(" | ") || null,
-        allergies: profile.allergies,
-        dislikes: profile.dislikes,
-        dislikes_notes: profile.dislikes_notes || null,
-        works_out: profile.works_out,
-        workout_type: profile.workout_types.join(", ") || null,
-        workout_days: profile.workout_days,
-        workout_time: profile.workout_time || null,
-        region: profile.region || null,
-        budget_weekly: profile.budget_weekly,
-        max_cooking_time: profile.max_cooking_time,
-        meal_preps: profile.meal_preps,
-        wake_time: profile.wake_time,
-        sleep_time: profile.sleep_time,
-        bmi: computedMacros.bmi,
-        bmr: computedMacros.bmr,
-        tdee: computedMacros.tdee,
-        target_kcal: computedMacros.target_kcal,
-        target_protein_g: computedMacros.target_protein_g,
-        target_carbs_g: computedMacros.target_carbs_g,
-        target_fat_g: computedMacros.target_fat_g,
-        onboarding_complete: true,
-        updated_at: new Date().toISOString(),
-      };
+      const data = await res.json();
 
-      // Try UPDATE first (user already created by /start)
-      const { data: updated, error: updateError } = await supabase
-        .from("users")
-        .update(updateData)
-        .eq("telegram_chat_id", parseInt(tgId))
-        .select()
-        .single();
-
-      if (updateError || !updated) {
-        // User record doesn't exist — INSERT it
-        const { error: insertError } = await supabase
-          .from("users")
-          .insert({
-            telegram_chat_id: parseInt(tgId),
-            ...updateData,
-          });
-
-        if (insertError) {
-          console.error("Insert error:", insertError);
-          setSubmitError("Failed to save your profile. Please try again.");
-          return;
-        }
+      if (!res.ok || !data.userId) {
+        setSubmitError(data.error || "Failed to save your profile. Please try again.");
+        return;
       }
 
-      // Fire-and-forget plan generation via API
-      const userRecord = updated || (await supabase.from("users").select("id").eq("telegram_chat_id", parseInt(tgId)).single()).data;
-      if (userRecord?.id) {
-        fetch("/api/generate-plan", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: userRecord.id }),
-        }).catch(() => {});
-      }
-
+      setSavedUserId(data.userId);
       setSaved(true);
+
+      // Fetch the generated plan
+      setPlanLoading(true);
+      try {
+        const planRes = await fetch(`/api/plan?uid=${data.userId}`);
+        const planData = await planRes.json();
+        if (planData.days?.length) {
+          setWeekPlan(planData.days as Record<string, unknown>[]);
+        }
+      } catch {
+        // Plan will show loading state; user can check Telegram
+      } finally {
+        setPlanLoading(false);
+      }
     } catch (e) {
       console.error("Submit error:", e);
       setSubmitError("Something went wrong. Please try again.");
@@ -841,16 +833,49 @@ function OnboardingContent() {
             { label: `${weeksToGoal} weeks`, kg: +(profile.weight_kg - profile.target_kg).toFixed(1) },
           ];
 
+          const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+          const SLOT_LABELS: Record<string, string> = {
+            early_morning: '🌅 Early morning',
+            breakfast: '🍳 Breakfast',
+            mid_morning: '🥛 Mid-morning',
+            lunch: '🍱 Lunch',
+            evening_snack: '🥜 Evening snack',
+            dinner: '🍽️ Dinner',
+            pre_bed: '🌙 Pre-bed',
+          };
+
+          type Slot = { slot: string; time?: string; meal: string; kcal: number; protein_g: number; carbs_g?: number; fat_g?: number; prep_time_min?: number };
+          type Day = { day_index: number; day_name: string; is_workout_day?: boolean; total_kcal?: number; slots: Slot[] };
+
+          const activeDayData = weekPlan
+            ? (weekPlan[activeDay] as Day | undefined)
+            : null;
+
+          async function saveSlotEdit(dayIndex: number, slotName: string, newMeal: string) {
+            if (!savedUserId) return;
+            await fetch('/api/plan/edit', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: savedUserId, dayIndex, slotName, meal: newMeal }),
+            });
+            // Refresh plan
+            const planRes = await fetch(`/api/plan?uid=${savedUserId}`);
+            const planData = await planRes.json();
+            if (planData.days?.length) setWeekPlan(planData.days as Record<string, unknown>[]);
+            setEditingSlot(null);
+            setEditText('');
+          }
+
           return (
             <div className="space-y-4">
               {/* Header */}
               <div className="rounded-2xl p-8 text-center" style={{ backgroundColor: "#2D4A3E", color: "#FFFFFF" }}>
                 <div className="text-5xl mb-3">🔒</div>
                 <div className="text-3xl font-bold mb-2" style={{ fontFamily: "Fraunces, Georgia, serif" }}>
-                  Profile saved!
+                  You&apos;re locked in!
                 </div>
                 <p className="text-sm" style={{ color: "#7BA088" }}>
-                  Your 7-day meal plan is being generated.<br />You&apos;ll get a Telegram notification when it&apos;s ready.
+                  Profile saved. Your personalised 7-day plan is below.
                 </p>
               </div>
 
@@ -930,15 +955,130 @@ function OnboardingContent() {
                 </div>
               </div>
 
+              {/* ── 7-Day Meal Plan ── */}
+              <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
+                <div className="px-6 pt-6 pb-3">
+                  <div className="text-sm font-bold uppercase tracking-widest mb-4" style={{ color: "#5A7A6B" }}>Your 7-Day Meal Plan</div>
+
+                  {/* Day tabs */}
+                  <div className="flex gap-1 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+                    {DAY_LABELS.map((d, i) => {
+                      const dayData = weekPlan?.[i] as Day | undefined;
+                      const isWorkout = dayData?.is_workout_day || profile.workout_days.includes(['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][i]);
+                      return (
+                        <button key={d} type="button"
+                          onClick={() => setActiveDay(i)}
+                          className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold transition-all"
+                          style={{
+                            backgroundColor: activeDay === i ? "#2D4A3E" : "#FAF8F3",
+                            color: activeDay === i ? "#FFFFFF" : "#6B7268",
+                            minWidth: '42px',
+                          }}>
+                          {d}
+                          {isWorkout && <div className="text-xs" style={{ opacity: 0.7 }}>💪</div>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="px-6 pb-6">
+                  {planLoading && (
+                    <div className="py-12 text-center" style={{ color: "#6B7268" }}>
+                      <div className="text-2xl mb-2">⏳</div>
+                      <p className="text-sm">Generating your personalised plan...</p>
+                      <p className="text-xs mt-1">This takes about 30 seconds</p>
+                    </div>
+                  )}
+
+                  {!planLoading && !weekPlan && (
+                    <div className="py-8 text-center" style={{ color: "#6B7268" }}>
+                      <div className="text-2xl mb-2">🔔</div>
+                      <p className="text-sm">Plan is being generated.</p>
+                      <p className="text-xs mt-1">You&apos;ll get a Telegram notification when it&apos;s ready.</p>
+                    </div>
+                  )}
+
+                  {!planLoading && weekPlan && activeDayData && (
+                    <div className="space-y-3 mt-2">
+                      {activeDayData.is_workout_day && (
+                        <div className="text-xs px-3 py-2 rounded-lg font-medium" style={{ backgroundColor: "rgba(123,160,136,0.15)", color: "#2D4A3E" }}>
+                          💪 Workout day — {activeDayData.total_kcal?.toLocaleString() || computedMacros.workout_day_kcal.toLocaleString()} kcal
+                        </div>
+                      )}
+                      {activeDayData.slots?.map((slot: Slot) => {
+                        const isEditing = editingSlot?.dayIndex === activeDay && editingSlot?.slotName === slot.slot;
+                        return (
+                          <div key={slot.slot} className="rounded-xl p-4" style={{ backgroundColor: "#FAF8F3" }}>
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <div>
+                                <div className="text-xs font-semibold mb-0.5" style={{ color: "#5A7A6B" }}>
+                                  {SLOT_LABELS[slot.slot] || slot.slot}
+                                  {slot.time && <span className="ml-2 font-normal" style={{ color: "#9BA89A" }}>{slot.time}</span>}
+                                </div>
+                                {!isEditing && (
+                                  <div className="text-sm font-medium" style={{ color: "#1A1F1B" }}>{slot.meal}</div>
+                                )}
+                              </div>
+                              {!isEditing && (
+                                <button type="button"
+                                  onClick={() => { setEditingSlot({ dayIndex: activeDay, slotName: slot.slot }); setEditText(slot.meal); }}
+                                  className="flex-shrink-0 text-xs px-2 py-1 rounded-lg border transition-all"
+                                  style={{ borderColor: "#E8E4DC", color: "#6B7268" }}>
+                                  Edit
+                                </button>
+                              )}
+                            </div>
+
+                            {isEditing && (
+                              <div className="mt-1">
+                                <textarea rows={2} value={editText} onChange={e => setEditText(e.target.value)}
+                                  className="w-full border rounded-xl px-3 py-2 text-sm outline-none resize-none mb-2"
+                                  style={{ borderColor: "#2D4A3E" }} />
+                                <div className="flex gap-2">
+                                  <button type="button"
+                                    onClick={() => saveSlotEdit(activeDay, slot.slot, editText)}
+                                    className="flex-1 py-2 rounded-xl text-xs font-semibold text-white"
+                                    style={{ backgroundColor: "#2D4A3E" }}>
+                                    Save
+                                  </button>
+                                  <button type="button"
+                                    onClick={() => { setEditingSlot(null); setEditText(''); }}
+                                    className="flex-1 py-2 rounded-xl text-xs font-medium border"
+                                    style={{ borderColor: "#E8E4DC", color: "#6B7268" }}>
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {!isEditing && (
+                              <div className="flex gap-3 mt-2 text-xs" style={{ color: "#9BA89A" }}>
+                                <span>{slot.kcal} kcal</span>
+                                <span>·</span>
+                                <span>{slot.protein_g}g protein</span>
+                                {slot.prep_time_min != null && slot.prep_time_min > 0 && (
+                                  <><span>·</span><span>{slot.prep_time_min} min prep</span></>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* CTA */}
               <div className="rounded-2xl p-6 text-center" style={{ backgroundColor: "#FAF8F3" }}>
                 <p className="text-sm mb-4" style={{ color: "#6B7268" }}>
-                  Open the bot on Telegram — your plan will be there waiting.
+                  The bot will remind you before each meal and check in after. Just reply naturally.
                 </p>
                 <a href="https://t.me/kanshi_bot"
                   className="inline-block w-full py-4 rounded-2xl font-semibold text-white text-center"
                   style={{ backgroundColor: "#2D4A3E" }}>
-                  Open Telegram → send /plan
+                  Open Telegram bot →
                 </a>
               </div>
             </div>
