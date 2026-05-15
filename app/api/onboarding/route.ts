@@ -5,9 +5,7 @@ export async function POST(req: NextRequest) {
   const db = getServerClient();
   try {
     const body = await req.json();
-    // phone is stripped here — add it back after running: ALTER TABLE users ADD COLUMN IF NOT EXISTS phone text;
-    const { telegramChatId, phone: _phone, ...profileData } = body;
-    void _phone;
+    const { telegramChatId, ...profileData } = body;
 
     const chatId = telegramChatId ? Number(telegramChatId) : null;
 
