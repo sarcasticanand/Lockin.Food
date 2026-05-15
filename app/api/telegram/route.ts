@@ -136,10 +136,32 @@ export async function POST(req: NextRequest) {
 
     if (callbackQueryId) await answerCallbackQuery(callbackQueryId);
 
-    // ---- /start ----
-    if (messageText === '/start') {
-      const user = await getUser(chatId);
-      if (!user) {
+    // ---- /start (with optional deep-link payload) ----
+    if (messageText.startsWith('/start')) {
+      const payload = messageText.slice('/start'.length).trim(); // e.g. a userId UUID
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload);
+
+      if (isUUID) {
+        // User came from the web onboarding deep-link — link their account
+        const { data: webUser } = await db
+          .from('users')
+          .update({ telegram_chat_id: chatId, telegram_username: username, updated_at: new Date().toISOString() })
+          .eq('id', payload)
+          .select()
+          .single();
+
+        if (webUser) {
+          await sendMessage(chatId,
+            `✅ Account linked! Welcome ${username || 'there'} 🔒\n\n` +
+            `Your 7-day meal plan is ready.\nSend /plan to see today's meals.`
+          );
+          return NextResponse.json({ ok: true });
+        }
+      }
+
+      // Normal /start — create user if new
+      const existingUser = await getUser(chatId);
+      if (!existingUser) {
         const { error } = await db.from('users').insert({
           telegram_chat_id: chatId,
           telegram_username: username,

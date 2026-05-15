@@ -38,11 +38,15 @@ export async function POST(req: NextRequest) {
 
     let planData: { days: unknown[] };
     try {
+      // Try to extract JSON object from within the text (Gemini sometimes adds prose)
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) text = jsonMatch[0];
       const parsed = JSON.parse(text);
       planData = Array.isArray(parsed) ? { days: parsed } : parsed;
-      if (!planData.days) throw new Error('No days array in response');
+      if (!planData.days || !Array.isArray(planData.days)) throw new Error('No days array');
     } catch (parseError) {
-      console.error('[generate-plan] Failed to parse AI response:', parseError);
+      console.error('[generate-plan] parse error. Raw text (first 500):', text.slice(0, 500));
+      console.error('[generate-plan] parse error detail:', parseError);
       return NextResponse.json(
         { error: 'AI returned invalid format. Try again.' },
         { status: 500 }

@@ -15,6 +15,8 @@ type Region = "north" | "south" | "east" | "west" | "other";
 
 interface Profile {
   telegramChatId: number | null;
+  phone: string;
+  telegram_username: string;
   goal: Goal | null;
   condition: string;
   target_kg: number;
@@ -45,7 +47,7 @@ interface Profile {
   sleep_time: string;
 }
 
-const TOTAL_STEPS = 10;
+const TOTAL_STEPS = 11;
 
 const FOOD_STYLE_CHIPS = [
   "North Indian", "South Indian", "Bengali", "Gujarati",
@@ -180,6 +182,8 @@ function OnboardingContent() {
 
   const [profile, setProfile] = useState<Profile>({
     telegramChatId: tgId ? parseInt(tgId, 10) : null,
+    phone: "",
+    telegram_username: "",
     goal: null,
     condition: "",
     target_kg: 5,
@@ -214,12 +218,36 @@ function OnboardingContent() {
     setProfile(p => ({ ...p, [key]: value }));
   }
 
+  // Poll for plan after save (Gemini takes ~20-30 seconds)
+  useEffect(() => {
+    if (!planLoading || !savedUserId || weekPlan) return;
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const res = await fetch(`/api/plan?uid=${savedUserId}`);
+        const data = await res.json();
+        if (data.days?.length) {
+          setWeekPlan(data.days as Record<string, unknown>[]);
+          setPlanLoading(false);
+          clearInterval(interval);
+        }
+      } catch { /* ignore */ }
+      if (attempts >= 12) {
+        setPlanLoading(false);
+        clearInterval(interval);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [planLoading, savedUserId, weekPlan]);
+
   function canAdvance(): boolean {
     switch (step) {
       case 1: return profile.goal !== null;
       case 2: return profile.height_cm > 0 && profile.weight_kg > 0 && profile.age > 0 && profile.sex !== null;
       case 3: return profile.activity_level !== null;
       case 8: return profile.max_cooking_time !== null;
+      case 10: return true; // contact step is optional
       default: return true;
     }
   }
@@ -292,6 +320,8 @@ function OnboardingContent() {
           target_carbs_g: computedMacros.target_carbs_g,
           target_fat_g: computedMacros.target_fat_g,
           onboarding_complete: true,
+          phone: profile.phone || null,
+          telegram_username: profile.telegram_username || null,
         }),
       });
 
@@ -749,8 +779,46 @@ function OnboardingContent() {
           </StepCard>
         )}
 
-        {/* ── Step 10: Confirm targets ── */}
-        {step === 10 && computedMacros && !saved && (
+        {/* ── Step 10: Contact / Telegram ── */}
+        {step === 10 && (
+          <StepCard title="How should we reach you?" subtitle="We'll send meal reminders and check-ins. Both fields are optional.">
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block" style={{ color: "#1A1F1B" }}>
+                  📱 Phone number
+                </label>
+                <input
+                  type="tel"
+                  placeholder="+91 98765 43210"
+                  value={profile.phone}
+                  onChange={e => update("phone", e.target.value)}
+                  className="w-full border rounded-xl px-4 py-3 text-sm outline-none"
+                  style={{ borderColor: "#E8E4DC" }}
+                />
+                <p className="text-xs mt-1" style={{ color: "#6B7268" }}>We'll send you a link to connect with the Telegram bot.</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-1 block" style={{ color: "#1A1F1B" }}>
+                  ✈️ Telegram username
+                </label>
+                <input
+                  type="text"
+                  placeholder="@yourhandle"
+                  value={profile.telegram_username}
+                  onChange={e => update("telegram_username", e.target.value.replace(/^@+/, ''))}
+                  className="w-full border rounded-xl px-4 py-3 text-sm outline-none"
+                  style={{ borderColor: "#E8E4DC" }}
+                />
+              </div>
+              <p className="text-xs px-3 py-2 rounded-lg" style={{ backgroundColor: "#FAF8F3", color: "#6B7268" }}>
+                You can also skip this and connect Telegram after — your plan will still be visible here.
+              </p>
+            </div>
+          </StepCard>
+        )}
+
+        {/* ── Step 11: Confirm targets ── */}
+        {step === 11 && computedMacros && !saved && (
           <div className="space-y-4">
             <div className="rounded-2xl p-8 text-center" style={{ backgroundColor: "#2D4A3E", color: "#FFFFFF" }}>
               <div className="text-4xl font-bold mb-1" style={{ fontFamily: "Fraunces, Georgia, serif" }}>
@@ -809,8 +877,8 @@ function OnboardingContent() {
           </div>
         )}
 
-        {/* ── Step 10: Success dashboard (after save) ── */}
-        {step === 10 && computedMacros && saved && (() => {
+        {/* ── Step 11: Success dashboard (after save) ── */}
+        {step === 11 && computedMacros && saved && (() => {
           const deficit = computedMacros.tdee - computedMacros.target_kcal;
           const weeklyLossKg = Math.min(deficit > 0 ? (deficit * 7) / 7700 : 0, 1.0);
           const weeksToGoal = weeklyLossKg > 0 ? Math.ceil(profile.target_kg / weeklyLossKg) : profile.target_weeks;
@@ -1062,14 +1130,18 @@ function OnboardingContent() {
               </div>
 
               {/* CTA */}
-              <div className="rounded-2xl p-6 text-center" style={{ backgroundColor: "#FAF8F3" }}>
-                <p className="text-sm mb-4" style={{ color: "#6B7268" }}>
-                  The bot will remind you before each meal and check in after. Just reply naturally.
+              <div className="rounded-2xl p-6 space-y-3" style={{ backgroundColor: "#FAF8F3" }}>
+                <p className="text-sm font-medium" style={{ color: "#1A1F1B" }}>
+                  Connect Telegram to get meal reminders
                 </p>
-                <a href="https://t.me/kanshi_bot"
+                <p className="text-xs" style={{ color: "#6B7268" }}>
+                  Tap the button below — it opens the bot and links your account automatically.
+                </p>
+                <a href={`https://t.me/kanshi_bot?start=${savedUserId || ''}`}
+                  target="_blank" rel="noreferrer"
                   className="inline-block w-full py-4 rounded-2xl font-semibold text-white text-center"
                   style={{ backgroundColor: "#2D4A3E" }}>
-                  Open Telegram bot →
+                  Connect Telegram bot →
                 </a>
               </div>
             </div>
@@ -1089,7 +1161,7 @@ function OnboardingContent() {
             <button type="button" onClick={handleNext} disabled={!canAdvance()}
               className="flex-1 py-4 rounded-2xl font-semibold text-white transition-colors"
               style={{ backgroundColor: canAdvance() ? "#2D4A3E" : "#B0BDB8" }}>
-              {step === TOTAL_STEPS - 1 ? "Calculate my targets →" : "Continue →"}
+              {step === TOTAL_STEPS - 1 ? "Calculate my targets →" : step === 10 ? "Continue (optional) →" : "Continue →"}
             </button>
           </div>
         )}
