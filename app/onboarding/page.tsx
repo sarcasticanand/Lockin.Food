@@ -105,7 +105,7 @@ export default function OnboardingPage() {
         name: form.name,
         phone_number: phone,
         telegram_username: form.telegram_username.replace('@', '') || null,
-        goal: form.goal, condition: form.condition || null,
+        goal: form.goal, condition: form.condition || null, condition_notes: form.condition_notes || null,
         target_kg: form.target_kg || null, target_weeks: form.target_weeks || null,
         height_cm: form.height_cm, weight_kg: form.weight_kg, age: form.age, sex: form.sex,
         activity_level: form.activity_level,

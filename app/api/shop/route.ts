@@ -46,8 +46,8 @@ export async function POST(req: NextRequest) {
 
   const days = plan.plan_data?.days || [];
   for (const day of days) {
-    const slots = (day as { slots?: Record<string, unknown> }).slots || {};
-    for (const slot of Object.values(slots)) {
+    const slots = (day as { slots?: Array<Record<string, unknown>> }).slots || [];
+    for (const slot of slots) {
       const typedSlot = slot as { ingredients?: { name: string; qty: number; unit: string; category?: string }[] };
       const ingredients = typedSlot.ingredients || [];
       for (const ing of ingredients) {

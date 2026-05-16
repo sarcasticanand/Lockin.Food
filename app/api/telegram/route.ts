@@ -354,10 +354,15 @@ async function logMealConfirmed(db: ReturnType<typeof getServerClient>, user: Re
     name: slotData?.meal || slot,
     kcal: Number(slotData?.kcal || 0),
     protein_g: Number(slotData?.protein_g || 0),
+    carbs_g: Number(slotData?.carbs_g || 0),
+    fat_g: Number(slotData?.fat_g || 0),
     logged_at: new Date().toISOString(),
   }]
-  const total_kcal = (meals_eaten as Array<Record<string,number>>).reduce((sum, m) => sum + (m.kcal || 0), 0)
-  const total_protein_g = (meals_eaten as Array<Record<string,number>>).reduce((sum, m) => sum + (m.protein_g || 0), 0)
+  const typed = meals_eaten as Array<Record<string, number>>
+  const total_kcal = typed.reduce((sum, m) => sum + (m.kcal || 0), 0)
+  const total_protein_g = typed.reduce((sum, m) => sum + (m.protein_g || 0), 0)
+  const total_carbs_g = typed.reduce((sum, m) => sum + (m.carbs_g || 0), 0)
+  const total_fat_g = typed.reduce((sum, m) => sum + (m.fat_g || 0), 0)
 
   await db.from('daily_logs').upsert({
     user_id: user.id,
@@ -365,6 +370,8 @@ async function logMealConfirmed(db: ReturnType<typeof getServerClient>, user: Re
     meals_eaten,
     total_kcal,
     total_protein_g,
+    total_carbs_g,
+    total_fat_g,
   }, { onConflict: 'user_id,log_date' })
 }
 
