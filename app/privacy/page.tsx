@@ -1,13 +1,11 @@
-import Link from "next/link";
+import Link from 'next/link'
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen" style={{ backgroundColor: "#FAF8F3" }}>
-      <nav className="max-w-3xl mx-auto px-6 py-5 flex items-center justify-between">
-        <Link href="/" style={{ fontFamily: "Fraunces, Georgia, serif", color: "#2D4A3E", fontWeight: 700, fontSize: 20 }}>
-          Lockin 🔒
-        </Link>
-        <Link href="/" className="text-sm" style={{ color: "#6B7268" }}>← Back</Link>
+    <div className="min-h-screen bg-cream">
+      <nav className="max-w-3xl mx-auto px-5 py-5 flex items-center justify-between">
+        <Link href="/" className="font-display font-bold text-xl text-[#2D4A3E]">Lockin 🔒</Link>
+        <Link href="/" className="text-sm text-[#6B7268]">Back</Link>
       </nav>
 
       <article className="max-w-3xl mx-auto px-6 py-8 pb-20">

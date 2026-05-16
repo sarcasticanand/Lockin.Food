@@ -1,56 +1,30 @@
-import { getServerClient } from './supabase';
+import { getServerClient } from './supabase'
 
-// Lazy getter — avoids module-level createClient() during build
-function db() { return getServerClient(); }
+let _cache: Record<string, { value: string; ts: number }> = {}
+const TTL = 5 * 60 * 1000
 
-// Cache the prompt template for 5 minutes — avoid a DB round-trip on every message
-let promptCache: Record<string, { template: string; timestamp: number }> = {};
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+async function getConfig(key: string): Promise<string> {
+  const cached = _cache[key]
+  if (cached && Date.now() - cached.ts < TTL) return cached.value
 
-async function getPromptTemplate(key: string = 'system_prompt_template'): Promise<string> {
-  const cached = promptCache[key];
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.template;
-  }
-
-  const { data, error } = await db()
-    .from('config')
-    .select('value')
-    .eq('key', key)
-    .single();
-
-  if (error) {
-    console.error(`[prompt-builder] Failed to load ${key}:`, error.message);
-    return '';
-  }
-
-  // The value is stored as a JSON string in the DB (the SQL inserts it as a JSON string literal)
-  const template = typeof data?.value === 'string' ? data.value : JSON.stringify(data?.value || '');
-  promptCache[key] = { template, timestamp: Date.now() };
-  return template;
+  const { data } = await getServerClient().from('config').select('value').eq('key', key).single()
+  const value = typeof data?.value === 'string' ? data.value : JSON.stringify(data?.value ?? '')
+  _cache[key] = { value, ts: Date.now() }
+  return value
 }
 
 export async function getFeatureFlags(): Promise<Record<string, unknown>> {
-  const { data } = await db()
-    .from('config')
-    .select('value')
-    .eq('key', 'features')
-    .single();
-  return (data?.value as Record<string, unknown>) || {};
+  const { data } = await getServerClient().from('config').select('value').eq('key', 'features').single()
+  return (data?.value as Record<string, unknown>) ?? {}
 }
 
 export async function getInstamartConfig(): Promise<Record<string, unknown>> {
-  const { data } = await db()
-    .from('config')
-    .select('value')
-    .eq('key', 'instamart_config')
-    .single();
-  return (data?.value as Record<string, unknown>) || { enabled: false };
+  const { data } = await getServerClient().from('config').select('value').eq('key', 'instamart_config').single()
+  return (data?.value as Record<string, unknown>) ?? { enabled: false }
 }
 
-// Invalidate cache (call after editing config in Supabase)
 export function invalidatePromptCache() {
-  promptCache = {};
+  _cache = {}
 }
 
 export async function buildSystemPrompt(
@@ -59,7 +33,7 @@ export async function buildSystemPrompt(
   pantry: Record<string, unknown>[],
   todayLog: Record<string, unknown> | null
 ): Promise<string> {
-  const template = await getPromptTemplate('system_prompt_template');
+  const template = await getConfig('system_prompt_template')
 
   const today = new Date();
   const dayName = today.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isInstamartEnabled, searchProducts, addToCart, getAttribution } from '@/lib/instamart';
+import { isInstamartEnabled, searchProducts, addToCart } from '@/lib/instamart';
 
 // Instamart module — returns 503 until enabled in config table
 export async function POST(req: NextRequest) {
@@ -20,8 +20,7 @@ export async function POST(req: NextRequest) {
 
   if (action === 'add_to_cart') {
     const success = await addToCart(items);
-    const attribution = await getAttribution();
-    return NextResponse.json({ success, attribution });
+    return NextResponse.json({ success, attribution: 'Powered by Swiggy Instamart' });
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
@@ -29,6 +28,5 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   const enabled = await isInstamartEnabled();
-  const attribution = await getAttribution();
-  return NextResponse.json({ enabled, attribution });
+  return NextResponse.json({ enabled, attribution: 'Powered by Swiggy Instamart' });
 }

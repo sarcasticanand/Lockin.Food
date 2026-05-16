@@ -1,235 +1,242 @@
-"use client";
+'use client'
 
-import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { Suspense } from "react";
-
-interface MacroProgress {
-  kcal: { current: number; target: number };
-  protein: { current: number; target: number };
-  carbs: { current: number; target: number };
-  fat: { current: number; target: number };
-}
-
-interface SlotItem {
-  time: string;
-  name: string;
-  kcal?: number;
-  protein_g?: number;
-  plate_totals?: { kcal: number; protein_g: number };
-}
+import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { Progress } from '@/components/ui/progress'
+import { Card } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { ShoppingCart, Package, Calendar, User, MessageCircle, ChevronRight, Lock } from 'lucide-react'
 
 interface DashboardData {
   user: {
-    telegram_username: string;
-    current_streak: number;
-    target_kcal: number;
-    target_protein_g: number;
-    target_carbs_g: number;
-    target_fat_g: number;
-  };
-  todaySlots: Record<string, SlotItem> | null;
-  log: MacroProgress;
-  pantryAlerts: number;
+    name?: string
+    telegram_username?: string
+    telegram_connected: boolean
+    current_streak: number
+    target_kcal: number
+    target_protein_g: number
+    target_carbs_g: number
+    target_fat_g: number
+  }
+  todaySlots: Array<{
+    slot: string
+    time: string
+    meal: string
+    kcal: number
+    protein_g: number
+  }> | null
+  log: {
+    kcal: { current: number; target: number }
+    protein: { current: number; target: number }
+    carbs: { current: number; target: number }
+    fat: { current: number; target: number }
+  }
+  pantryAlerts: number
 }
 
-function MacroBar({ label, current, target, color }: {
-  label: string; current: number; target: number; color: string;
-}) {
-  const pct = Math.min(Math.round((current / target) * 100), 100);
+const SLOT_LABELS: Record<string, string> = {
+  early_morning: 'Early Morning',
+  breakfast: 'Breakfast',
+  mid_morning: 'Mid-Morning',
+  lunch: 'Lunch',
+  evening_snack: 'Evening Snack',
+  dinner: 'Dinner',
+  pre_bed: 'Pre-Bed',
+}
+
+function MacroBar({ label, current, target, color }: { label: string; current: number; target: number; color: string }) {
+  const pct = target > 0 ? Math.min(Math.round((current / target) * 100), 100) : 0
   return (
     <div>
-      <div className="flex justify-between text-sm mb-1.5">
-        <span style={{ color: "#6B7268" }}>{label}</span>
-        <span className="font-semibold" style={{ color: "#1A1F1B" }}>{current} / {target}{label === "Calories" ? " kcal" : "g"}</span>
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-[#6B7268]">{label}</span>
+        <span className="font-medium text-ink">{current} / {target}{label === 'Calories' ? ' kcal' : 'g'}</span>
       </div>
-      <div className="h-2 rounded-full" style={{ backgroundColor: "#E8E4DC" }}>
-        <div
-          className="h-full rounded-full transition-all duration-700"
-          style={{ width: `${pct}%`, backgroundColor: color }}
-        />
-      </div>
+      <Progress value={pct} indicatorClassName={`bg-[${color}]`} className="h-2" style={{ '--tw-bg-opacity': '1' } as React.CSSProperties} />
+      <div className="text-xs text-[#6B7268] mt-0.5 text-right">{pct}%</div>
     </div>
-  );
+  )
 }
 
-const SLOT_LABELS: Record<string, { emoji: string; label: string }> = {
-  early_morning: { emoji: "🌅", label: "Early Morning" },
-  breakfast: { emoji: "🍳", label: "Breakfast" },
-  mid_morning: { emoji: "🍎", label: "Mid-Morning" },
-  lunch: { emoji: "🍱", label: "Lunch" },
-  evening_snack: { emoji: "☕", label: "Evening Snack" },
-  dinner: { emoji: "🌙", label: "Dinner" },
-  pre_bed: { emoji: "🌛", label: "Pre-Bed" },
-};
-
 function DashboardContent() {
-  const searchParams = useSearchParams();
-  const userId = searchParams.get("uid");
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const params = useSearchParams()
+  const uid = params.get('uid')
+  const [data, setData] = useState<DashboardData | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!userId) { setLoading(false); return; }
-    fetch(`/api/dashboard?uid=${userId}`)
-      .then((r) => r.json())
+    if (!uid) return
+    fetch(`/api/dashboard?uid=${uid}`)
+      .then(r => r.json())
       .then(setData)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [userId]);
+      .finally(() => setLoading(false))
+  }, [uid])
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#FAF8F3" }}>
-        <div className="text-center" style={{ color: "#2D4A3E", fontFamily: "Fraunces, Georgia, serif", fontSize: 24 }}>
-          Loading your day...
-        </div>
+  if (!uid) return (
+    <div className="min-h-screen bg-cream flex items-center justify-center p-5">
+      <div className="text-center">
+        <p className="text-[#6B7268] mb-4">No user ID found.</p>
+        <Link href="/onboarding" className="text-[#2D4A3E] font-medium underline">Set up your profile</Link>
       </div>
-    );
-  }
+    </div>
+  )
 
-  if (!userId || !data) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-6" style={{ backgroundColor: "#FAF8F3" }}>
-        <div className="text-center max-w-sm">
-          <div className="text-4xl mb-4">🔒</div>
-          <h1 className="text-2xl font-bold mb-3" style={{ fontFamily: "Fraunces, Georgia, serif", color: "#2D4A3E" }}>
-            Welcome to Lockin
-          </h1>
-          <p className="mb-6" style={{ color: "#6B7268" }}>Set up your profile to see your dashboard.</p>
-          <Link
-            href="/onboarding"
-            className="inline-block px-6 py-3 rounded-xl font-semibold text-white"
-            style={{ backgroundColor: "#2D4A3E" }}
-          >
-            Set up profile →
-          </Link>
-        </div>
+  if (loading) return (
+    <div className="min-h-screen bg-cream flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-8 h-8 border-2 border-[#2D4A3E] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-[#6B7268] text-sm">Loading your plan...</p>
       </div>
-    );
-  }
+    </div>
+  )
 
-  const { user, todaySlots, log } = data;
-  const now = new Date();
-  const dateStr = now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
+  if (!data) return (
+    <div className="min-h-screen bg-cream flex items-center justify-center p-5">
+      <p className="text-[#6B7268]">Could not load dashboard. <Link href="/onboarding" className="text-[#2D4A3E] underline">Start over</Link></p>
+    </div>
+  )
+
+  const { user, todaySlots, log, pantryAlerts } = data
+  const now = new Date()
+  const hour = now.getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
   return (
-    <div className="min-h-screen pb-20" style={{ backgroundColor: "#FAF8F3" }}>
-      {/* Header */}
-      <div className="px-5 pt-8 pb-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-bold" style={{ fontFamily: "Fraunces, Georgia, serif", color: "#1A1F1B" }}>
-              Hey {user.telegram_username || "there"} 👋
-            </h1>
-            <p className="text-sm mt-0.5" style={{ color: "#6B7268" }}>{dateStr}</p>
-          </div>
-          <div
-            className="text-center px-4 py-2 rounded-xl"
-            style={{ backgroundColor: "rgba(45,74,62,0.08)" }}
-          >
-            <div className="text-2xl font-bold" style={{ color: "#2D4A3E", fontFamily: "Fraunces, Georgia, serif" }}>
-              {user.current_streak}
-            </div>
-            <div className="text-xs" style={{ color: "#5A7A6B" }}>day streak 🔥</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="px-5 space-y-4">
-        {/* Macro progress */}
-        <div className="rounded-2xl p-5" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
-          <h2 className="font-semibold mb-4" style={{ color: "#1A1F1B" }}>Today&apos;s macros</h2>
-          <div className="space-y-4">
-            <MacroBar label="Calories" current={log.kcal.current} target={log.kcal.target} color="#2D4A3E" />
-            <MacroBar label="Protein" current={log.protein.current} target={log.protein.target} color="#E89B7C" />
-            <MacroBar label="Carbs" current={log.carbs.current} target={log.carbs.target} color="#D4A574" />
-            <MacroBar label="Fat" current={log.fat.current} target={log.fat.target} color="#7BA088" />
-          </div>
-        </div>
-
-        {/* Today's meal timeline */}
-        <div className="rounded-2xl p-5" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold" style={{ color: "#1A1F1B" }}>Today&apos;s meals</h2>
-            <Link href={`/plan?uid=${userId}`} className="text-xs font-medium" style={{ color: "#2D4A3E" }}>
-              Full week →
+    <div className="min-h-screen bg-cream">
+      <nav className="sticky top-0 bg-cream/95 backdrop-blur border-b border-[#E8E4DC] z-10">
+        <div className="max-w-2xl mx-auto px-5 py-4 flex items-center justify-between">
+          <span className="font-display font-bold text-xl text-[#2D4A3E]">Lockin <Lock className="w-4 h-4 inline" /></span>
+          <div className="flex items-center gap-3">
+            {user.current_streak > 0 && (
+              <Badge variant="sage" className="text-xs">{user.current_streak} day streak</Badge>
+            )}
+            <Link href={`/profile?uid=${uid}`} className="w-8 h-8 rounded-full bg-[#2D4A3E]/10 flex items-center justify-center">
+              <User className="w-4 h-4 text-[#2D4A3E]" />
             </Link>
           </div>
+        </div>
+      </nav>
 
-          {todaySlots ? (
-            <div className="space-y-3">
-              {Object.entries(SLOT_LABELS).map(([slot, info]) => {
-                const item = todaySlots[slot];
-                if (!item) return null;
-                const kcal = item.plate_totals?.kcal ?? item.kcal ?? 0;
-                const protein = item.plate_totals?.protein_g ?? item.protein_g ?? 0;
-                return (
-                  <div key={slot} className="flex items-start gap-3">
-                    <div className="pt-0.5 text-lg w-7 flex-shrink-0">{info.emoji}</div>
-                    <div className="flex-1">
-                      <div className="flex justify-between">
-                        <span className="font-medium text-sm" style={{ color: "#1A1F1B" }}>{item.name}</span>
-                        <span className="text-xs" style={{ color: "#6B7268" }}>{kcal} kcal · {protein}g P</span>
-                      </div>
-                      <div className="text-xs mt-0.5" style={{ color: "#6B7268" }}>{item.time} · {info.label}</div>
+      <div className="max-w-2xl mx-auto px-5 py-6 space-y-5">
+        {/* Greeting */}
+        <div>
+          <h1 className="font-display text-2xl font-bold text-ink">
+            {greeting}{user.name ? `, ${user.name}` : ''}. {user.current_streak > 0 ? `Day ${user.current_streak}.` : ''}
+          </h1>
+          <p className="text-[#6B7268] text-sm mt-0.5">
+            Target: {user.target_kcal} kcal · {user.target_protein_g}g protein
+          </p>
+        </div>
+
+        {/* Macro progress */}
+        <Card>
+          <h2 className="font-medium text-ink mb-4">Today&apos;s progress</h2>
+          <div className="space-y-4">
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-[#6B7268]">Calories</span>
+                <span className="font-medium text-ink">{log.kcal.current} / {log.kcal.target} kcal</span>
+              </div>
+              <div className="h-2 bg-[#E8E4DC] rounded-full overflow-hidden">
+                <div className="h-full bg-[#2D4A3E] rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min((log.kcal.current / log.kcal.target) * 100, 100)}%` }} />
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-[#6B7268]">Protein</span>
+                <span className="font-medium text-ink">{log.protein.current}g / {log.protein.target}g</span>
+              </div>
+              <div className="h-2 bg-[#E8E4DC] rounded-full overflow-hidden">
+                <div className="h-full bg-[#7BA088] rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min((log.protein.current / log.protein.target) * 100, 100)}%` }} />
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Today's meals */}
+        <div>
+          <h2 className="font-display font-semibold text-lg text-ink mb-3">Today&apos;s meals</h2>
+          {todaySlots && todaySlots.length > 0 ? (
+            <div className="space-y-2">
+              {todaySlots.map((slot) => (
+                <div key={slot.slot} className="bg-white rounded-xl p-4 border border-[#E8E4DC] flex items-start gap-3">
+                  <div className="w-2 h-2 rounded-full bg-[#5A7A6B] mt-2 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-[#6B7268] shrink-0">{slot.time} · {SLOT_LABELS[slot.slot] || slot.slot}</span>
                     </div>
+                    <p className="text-sm font-medium text-ink mt-0.5 leading-snug">{slot.meal}</p>
+                    {(slot.kcal > 0 || slot.protein_g > 0) && (
+                      <p className="text-xs text-[#6B7268] mt-1">{slot.kcal} kcal · {slot.protein_g}g protein</p>
+                    )}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="text-center py-6">
-              <p className="text-sm mb-3" style={{ color: "#6B7268" }}>No meal plan generated yet.</p>
-              <p className="text-xs" style={{ color: "#5A7A6B" }}>Open Telegram and send /plan</p>
+            <div className="bg-white rounded-xl p-6 border border-[#E8E4DC] text-center">
+              <p className="text-[#6B7268] text-sm mb-3">No meal plan yet.</p>
+              <Link href={`/plan?uid=${uid}`} className="text-[#2D4A3E] text-sm font-medium underline">Generate your plan</Link>
             </div>
           )}
         </div>
 
-        {/* Quick actions */}
+        {/* Quick links */}
         <div className="grid grid-cols-2 gap-3">
           {[
-            { href: `/shop?uid=${userId}`, icon: "🛒", label: "Shopping list" },
-            { href: `/pantry?uid=${userId}`, icon: "🧺", label: "Pantry" },
-            { href: `/plan?uid=${userId}`, icon: "📅", label: "Week plan" },
-            { href: `/profile?uid=${userId}`, icon: "⚙️", label: "Profile" },
-          ].map((a) => (
-            <Link
-              key={a.href}
-              href={a.href}
-              className="rounded-2xl p-4 flex items-center gap-3 transition-colors"
-              style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 8px rgba(45,74,62,0.05)" }}
-            >
-              <span className="text-xl">{a.icon}</span>
-              <span className="font-medium text-sm" style={{ color: "#1A1F1B" }}>{a.label}</span>
+            { href: `/plan?uid=${uid}`, icon: Calendar, label: 'Full week plan', sub: '7-day view' },
+            { href: `/shop?uid=${uid}`, icon: ShoppingCart, label: 'Shopping list', sub: 'Generate from plan' },
+            { href: `/pantry?uid=${uid}`, icon: Package, label: 'Pantry', sub: pantryAlerts > 0 ? `${pantryAlerts} items low` : 'Track groceries' },
+            { href: `/progress?uid=${uid}`, icon: User, label: 'Progress', sub: 'Charts & streak' },
+          ].map(item => (
+            <Link key={item.href} href={item.href}
+              className="bg-white rounded-xl p-4 border border-[#E8E4DC] hover:border-[#2D4A3E]/30 transition-colors flex items-center gap-3">
+              <item.icon className="w-5 h-5 text-[#2D4A3E] shrink-0" />
+              <div className="min-w-0">
+                <div className="font-medium text-sm text-ink">{item.label}</div>
+                <div className={`text-xs ${pantryAlerts > 0 && item.label === 'Pantry' ? 'text-[#D4A574]' : 'text-[#6B7268]'}`}>{item.sub}</div>
+              </div>
             </Link>
           ))}
         </div>
 
-        {/* Telegram CTA */}
-        <a
-          href="https://t.me/lockinfood_bot"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block rounded-2xl p-4 text-center font-semibold text-white transition-colors"
-          style={{ backgroundColor: "#2D4A3E" }}
-        >
-          Open Telegram to chat with Lockin →
-        </a>
+        {/* Telegram connect */}
+        {!user.telegram_connected ? (
+          <Card className="border border-[#2D4A3E]/20 bg-[#2D4A3E]/5">
+            <div className="flex items-start gap-3">
+              <MessageCircle className="w-5 h-5 text-[#2D4A3E] shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="font-medium text-ink mb-1">Connect Telegram for daily reminders</h3>
+                <p className="text-sm text-[#6B7268] mb-3">Get pre-meal nudges, post-meal tracking, and your daily summary — all on Telegram.</p>
+                <a href="https://t.me/lockinfood_bot"
+                  className="inline-flex items-center gap-1.5 bg-[#2D4A3E] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#243d32] transition-colors">
+                  Open Telegram bot <ChevronRight className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+          </Card>
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-[#7BA088] bg-[#7BA088]/10 rounded-xl px-4 py-3">
+            <div className="w-2 h-2 rounded-full bg-[#7BA088]" />
+            Telegram connected. Daily messages active.
+          </div>
+        )}
       </div>
     </div>
-  );
+  )
 }
 
 export default function DashboardPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#FAF8F3" }}>
-        <div style={{ color: "#2D4A3E" }}>Loading...</div>
+      <div className="min-h-screen bg-cream flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#2D4A3E] border-t-transparent rounded-full animate-spin" />
       </div>
     }>
       <DashboardContent />
     </Suspense>
-  );
+  )
 }
