@@ -1,189 +1,147 @@
-"use client";
+'use client'
 
-import { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
+import type { PantryItem, PantryStatus } from '@/types'
 
-interface PantryItem {
-  id: string;
-  name: string;
-  quantity: number;
-  unit: string;
-  category?: string;
-  status: "fresh" | "low" | "expired" | "out";
-  est_depletion_date?: string;
+const STATUS_COLORS: Record<PantryStatus, string> = {
+  fresh: '#7BA088', low: '#D4A574', expired: '#C66B5C', out: '#6B7268',
 }
 
-const STATUS_STYLES: Record<string, { bg: string; color: string; label: string }> = {
-  fresh: { bg: "rgba(123,160,136,0.15)", color: "#7BA088", label: "Fresh" },
-  low: { bg: "rgba(212,165,116,0.15)", color: "#D4A574", label: "Running low" },
-  expired: { bg: "rgba(198,107,92,0.15)", color: "#C66B5C", label: "Expired" },
-  out: { bg: "rgba(107,114,104,0.1)", color: "#6B7268", label: "Out" },
-};
-
 function PantryContent() {
-  const searchParams = useSearchParams();
-  const uid = searchParams.get("uid");
-  const [items, setItems] = useState<PantryItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [newItem, setNewItem] = useState({ name: "", quantity: "", unit: "g", category: "" });
+  const params = useSearchParams()
+  const uid = params.get('uid')
+  const [items, setItems] = useState<PantryItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState({ name: '', quantity: '', unit: 'g', category: '' })
 
-  useEffect(() => {
-    if (!uid) { setLoading(false); return; }
+  const load = () => {
+    if (!uid) return
     fetch(`/api/pantry?uid=${uid}`)
-      .then((r) => r.json())
-      .then((d) => setItems(d.items || []))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [uid]);
-
-  async function addItem() {
-    if (!uid || !newItem.name || !newItem.quantity) return;
-    setAdding(true);
-    try {
-      const res = await fetch("/api/pantry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: uid, ...newItem, quantity: parseFloat(newItem.quantity) }),
-      });
-      const data = await res.json();
-      if (data.item) setItems((prev) => [data.item, ...prev]);
-      setNewItem({ name: "", quantity: "", unit: "g", category: "" });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setAdding(false);
-    }
+      .then(r => r.json())
+      .then(d => setItems(d.items || []))
+      .finally(() => setLoading(false))
   }
 
-  async function updateStatus(id: string, status: string) {
-    await fetch("/api/pantry", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    });
-    setItems((prev) =>
-      prev.map((item) => item.id === id ? { ...item, status: status as PantryItem["status"] } : item)
-    );
+  useEffect(load, [uid])
+
+  const addItem = async () => {
+    if (!uid || !form.name) return
+    await fetch('/api/pantry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: uid, name: form.name, quantity: Number(form.quantity) || null, unit: form.unit, category: form.category || null }),
+    })
+    setForm({ name: '', quantity: '', unit: 'g', category: '' })
+    setAdding(false)
+    load()
   }
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#FAF8F3" }}>
-      <div style={{ color: "#2D4A3E" }}>Loading...</div>
-    </div>
-  );
+  const updateStatus = async (id: string, status: PantryStatus) => {
+    await fetch('/api/pantry', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) })
+    setItems(prev => prev.map(i => i.id === id ? { ...i, status } : i))
+  }
 
-  const grouped = items.reduce<Record<string, PantryItem[]>>((acc, item) => {
-    const cat = item.category || "Other";
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(item);
-    return acc;
-  }, {});
+  const deleteItem = async (id: string) => {
+    await fetch('/api/pantry', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+    setItems(prev => prev.filter(i => i.id !== id))
+  }
+
+  const categories = [...new Set(items.map(i => i.category).filter(Boolean))]
 
   return (
-    <div className="min-h-screen pb-20" style={{ backgroundColor: "#FAF8F3" }}>
-      <div className="px-5 pt-8 pb-4">
-        <div className="flex items-center justify-between mb-1">
-          <h1 className="text-2xl font-bold" style={{ fontFamily: "Fraunces, Georgia, serif", color: "#1A1F1B" }}>
-            Pantry
-          </h1>
-          {uid && <Link href={`/dashboard?uid=${uid}`} className="text-sm" style={{ color: "#2D4A3E" }}>← Dashboard</Link>}
+    <div className="min-h-screen bg-cream">
+      <nav className="sticky top-0 bg-cream/95 backdrop-blur border-b border-[#E8E4DC] z-10">
+        <div className="max-w-2xl mx-auto px-5 py-4 flex items-center gap-3">
+          <Link href={`/dashboard?uid=${uid}`} className="text-[#6B7268] hover:text-ink"><ArrowLeft className="w-5 h-5" /></Link>
+          <h1 className="font-display font-semibold text-lg text-ink flex-1">Pantry</h1>
+          <Button size="sm" onClick={() => setAdding(true)} className="gap-1.5">
+            <Plus className="w-4 h-4" /> Add
+          </Button>
         </div>
-        <p className="text-sm" style={{ color: "#6B7268" }}>{items.filter(i => i.status !== "out").length} items in stock</p>
-      </div>
+      </nav>
 
-      <div className="px-5 space-y-4">
-        {/* Add item */}
-        <div className="rounded-2xl p-4" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 8px rgba(45,74,62,0.05)" }}>
-          <div className="text-sm font-semibold mb-3" style={{ color: "#1A1F1B" }}>Add item</div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Item name"
-              value={newItem.name}
-              onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
-              className="flex-1 border rounded-xl px-3 py-2 text-sm outline-none"
-              style={{ borderColor: "#E8E4DC" }}
-            />
-            <input
-              type="number"
-              placeholder="Qty"
-              value={newItem.quantity}
-              onChange={(e) => setNewItem((p) => ({ ...p, quantity: e.target.value }))}
-              className="w-20 border rounded-xl px-3 py-2 text-sm outline-none"
-              style={{ borderColor: "#E8E4DC" }}
-            />
-            <select
-              value={newItem.unit}
-              onChange={(e) => setNewItem((p) => ({ ...p, unit: e.target.value }))}
-              className="border rounded-xl px-2 py-2 text-sm outline-none"
-              style={{ borderColor: "#E8E4DC" }}
-            >
-              {["g", "kg", "ml", "L", "pcs", "cups"].map((u) => <option key={u}>{u}</option>)}
-            </select>
+      <div className="max-w-2xl mx-auto px-5 py-6">
+        {adding && (
+          <div className="bg-white rounded-xl border border-[#2D4A3E]/30 p-4 mb-5 space-y-3">
+            <h3 className="font-medium text-ink">Add item</h3>
+            <Input placeholder="Item name *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            <div className="flex gap-2">
+              <Input placeholder="Quantity" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} className="flex-1" />
+              <Select value={form.unit} onValueChange={v => setForm(f => ({ ...f, unit: v }))}>
+                <SelectTrigger className="w-20"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {['g', 'kg', 'ml', 'L', 'pcs', 'dozen'].map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Input placeholder="Category (optional)" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} />
+            <div className="flex gap-2">
+              <Button onClick={addItem} disabled={!form.name} className="flex-1">Add item</Button>
+              <Button variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
+            </div>
           </div>
-          <button
-            onClick={addItem}
-            disabled={adding || !newItem.name || !newItem.quantity}
-            className="mt-3 w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-colors"
-            style={{ backgroundColor: (adding || !newItem.name || !newItem.quantity) ? "#B0BDB8" : "#2D4A3E" }}
-          >
-            {adding ? "Adding..." : "+ Add to pantry"}
-          </button>
-        </div>
+        )}
 
-        {/* Items by category */}
-        {Object.keys(grouped).length === 0 ? (
-          <div className="text-center py-12">
-            <div className="text-4xl mb-3">🧺</div>
-            <p className="font-semibold" style={{ color: "#1A1F1B" }}>Pantry is empty</p>
-            <p className="text-sm mt-1" style={{ color: "#6B7268" }}>Add items you have at home to personalise your plan.</p>
+        {loading ? (
+          <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-[#2D4A3E] border-t-transparent rounded-full animate-spin" /></div>
+        ) : items.length === 0 ? (
+          <div className="text-center py-20">
+            <p className="text-[#6B7268] mb-3">Your pantry is empty.</p>
+            <Button onClick={() => setAdding(true)} variant="outline">Add your first item</Button>
           </div>
         ) : (
-          Object.entries(grouped).map(([cat, catItems]) => (
-            <div key={cat} className="rounded-2xl overflow-hidden" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 8px rgba(45,74,62,0.05)" }}>
-              <div className="px-4 pt-4 pb-2">
-                <div className="text-xs font-bold uppercase tracking-wide" style={{ color: "#5A7A6B" }}>{cat}</div>
-              </div>
-              {catItems.map((item) => {
-                const style = STATUS_STYLES[item.status];
-                return (
-                  <div key={item.id} className="flex items-center gap-3 px-4 py-3 border-t" style={{ borderColor: "#F0EDE6" }}>
-                    <div className="flex-1">
-                      <div className="font-medium text-sm" style={{ color: "#1A1F1B" }}>{item.name}</div>
-                      <div className="text-xs mt-0.5" style={{ color: "#6B7268" }}>{item.quantity} {item.unit}</div>
-                    </div>
-                    <select
-                      value={item.status}
-                      onChange={(e) => updateStatus(item.id, e.target.value)}
-                      className="text-xs font-medium px-2 py-1 rounded-lg border-0 outline-none"
-                      style={{ backgroundColor: style.bg, color: style.color }}
-                    >
-                      <option value="fresh">Fresh</option>
-                      <option value="low">Running low</option>
-                      <option value="expired">Expired</option>
-                      <option value="out">Out</option>
-                    </select>
+          <div className="space-y-2">
+            {(categories.length > 0 ? categories : [null]).map(cat => {
+              const catItems = cat ? items.filter(i => i.category === cat) : items.filter(i => !i.category)
+              if (catItems.length === 0) return null
+              return (
+                <div key={cat || 'other'}>
+                  {cat && <h3 className="text-xs font-medium text-[#6B7268] uppercase tracking-wider mb-2 mt-4">{cat}</h3>}
+                  <div className="space-y-2">
+                    {catItems.map(item => (
+                      <div key={item.id} className="bg-white rounded-xl border border-[#E8E4DC] p-4 flex items-center gap-3">
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLORS[item.status] }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-sm text-ink">{item.name}</div>
+                          {item.quantity && <div className="text-xs text-[#6B7268]">{item.quantity} {item.unit}</div>}
+                        </div>
+                        <Select value={item.status} onValueChange={v => updateStatus(item.id, v as PantryStatus)}>
+                          <SelectTrigger className="w-24 h-8 text-xs border-0 bg-[#F5F3EE]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(['fresh', 'low', 'expired', 'out'] as PantryStatus[]).map(s => (
+                              <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <button onClick={() => deleteItem(item.id)} className="text-[#6B7268] hover:text-[#C66B5C] transition-colors">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
-          ))
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>
-  );
+  )
 }
 
 export default function PantryPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#FAF8F3" }}>
-        <div style={{ color: "#2D4A3E" }}>Loading...</div>
-      </div>
-    }>
+    <Suspense fallback={<div className="min-h-screen bg-cream flex items-center justify-center"><div className="w-8 h-8 border-2 border-[#2D4A3E] border-t-transparent rounded-full animate-spin" /></div>}>
       <PantryContent />
     </Suspense>
-  );
+  )
 }

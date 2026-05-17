@@ -1,1183 +1,563 @@
-"use client";
+'use client'
 
-import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { calculateMacros, getBMILabel } from "@/lib/macro-calculator";
+import { useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import { Slider } from '@/components/ui/slider'
+import { calculateMacros, getBMILabel, getWeeklyRateLabel } from '@/lib/macro-calculator'
+import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react'
+import type { Goal, Sex, ActivityLevel, CookingTime } from '@/types'
 
-// ============================================================
-// TYPES
-// ============================================================
-type Goal = "fat_loss" | "muscle_gain" | "clean_eating" | "manage_condition";
-type Sex = "male" | "female" | "other";
-type ActivityLevel = "sedentary" | "light" | "active" | "very_active";
-type CookingTime = "under_15" | "15_30" | "30_45" | "45_plus";
-type Region = "north" | "south" | "east" | "west" | "other";
+const TOTAL_STEPS = 10
 
-interface Profile {
-  telegramChatId: number | null;
-  phone: string;
-  telegram_username: string;
-  goal: Goal | null;
-  condition: string;
-  target_kg: number;
-  target_weeks: number;
-  height_cm: number;
-  weight_kg: number;
-  age: number;
-  sex: Sex | null;
-  activity_level: ActivityLevel | null;
-  okay_with_dairy: boolean;
-  okay_with_eggs: boolean;
-  okay_with_meat_fish: boolean;
-  food_style: string[];
-  food_style_notes: string;
-  food_region_note: string;
-  allergies: string[];
-  dislikes: string[];
-  dislikes_notes: string;
-  works_out: boolean;
-  workout_types: string[];
-  workout_days: string[];
-  workout_time: string;
-  region: Region | null;
-  budget_weekly: number;
-  max_cooking_time: CookingTime | null;
-  meal_preps: boolean;
-  wake_time: string;
-  sleep_time: string;
+interface FormData {
+  goal: Goal | ''
+  condition: string
+  target_kg: number
+  target_weeks: number
+  condition_notes: string
+  height_cm: number
+  weight_kg: number
+  age: number
+  sex: Sex | ''
+  activity_level: ActivityLevel | ''
+  works_out: boolean
+  workout_type: string[]
+  workout_days: string[]
+  workout_time: string
+  okay_with_dairy: boolean
+  okay_with_eggs: boolean
+  okay_with_meat_fish: boolean
+  food_style_notes: string
+  food_style: string[]
+  allergies: string[]
+  dislikes: string[]
+  dislikes_notes: string
+  budget_weekly: number
+  max_cooking_time: CookingTime | ''
+  meal_preps: boolean
+  wake_time: string
+  sleep_time: string
+  name: string
+  phone_number: string
+  telegram_username: string
 }
 
-const TOTAL_STEPS = 11;
-
-const FOOD_STYLE_CHIPS = [
-  "North Indian", "South Indian", "Bengali", "Gujarati",
-  "Maharashtrian", "Continental", "Chinese/Asian", "Health food", "Mixed",
-];
-
-const WORKOUT_TYPE_OPTIONS = [
-  { value: "gym_strength", label: "🏋️ Gym / Weight Training" },
-  { value: "running_cardio", label: "🏃 Running / Cardio" },
-  { value: "yoga_pilates", label: "🧘 Yoga / Pilates" },
-  { value: "swimming", label: "🏊 Swimming" },
-  { value: "sports", label: "🏸 Sports (cricket, badminton, etc.)" },
-  { value: "walking", label: "🚶 Walking / Light activity" },
-];
-
-const WORKOUT_DAYS_OPTIONS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const WORKOUT_DAYS_FULL = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
-
-const ALLERGY_OPTIONS = [
-  "Peanuts", "Tree nuts", "Gluten", "Dairy", "Eggs", "Shellfish",
-  "Mushrooms", "Soy", "Sesame",
-];
-
-const DISLIKE_OPTIONS = [
-  "Bitter gourd", "Karela", "Brinjal", "Okra", "Seafood",
-  "Red meat", "Spicy food", "Raw onion", "Garlic", "Coriander",
-];
-
-// ============================================================
-// SMALL COMPONENTS
-// ============================================================
-function ProgressBar({ step }: { step: number }) {
-  const pct = Math.round(((step - 1) / (TOTAL_STEPS - 1)) * 100);
-  return (
-    <div className="w-full">
-      <div className="flex justify-between text-xs mb-2" style={{ color: "#6B7268" }}>
-        <span>Step {step} of {TOTAL_STEPS}</span>
-        <span>{pct}%</span>
-      </div>
-      <div className="h-1.5 rounded-full" style={{ backgroundColor: "#E8E4DC" }}>
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${pct}%`, backgroundColor: "#2D4A3E" }}
-        />
-      </div>
-    </div>
-  );
+const INITIAL: FormData = {
+  goal: '', condition: '', target_kg: 5, target_weeks: 12, condition_notes: '',
+  height_cm: 170, weight_kg: 70, age: 25, sex: '',
+  activity_level: '', works_out: false, workout_type: [], workout_days: [], workout_time: '',
+  okay_with_dairy: true, okay_with_eggs: true, okay_with_meat_fish: true,
+  food_style_notes: '', food_style: [],
+  allergies: [], dislikes: [], dislikes_notes: '',
+  budget_weekly: 2000, max_cooking_time: '', meal_preps: false,
+  wake_time: '07:00', sleep_time: '23:00', name: '', phone_number: '', telegram_username: '',
 }
 
-function StepCard({ children, title, subtitle }: { children: React.ReactNode; title: string; subtitle?: string }) {
-  return (
-    <div className="rounded-2xl p-8" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 24px rgba(45,74,62,0.08)" }}>
-      <h2 className="text-2xl font-bold mb-1" style={{ fontFamily: "Fraunces, Georgia, serif", color: "#1A1F1B" }}>
-        {title}
-      </h2>
-      {subtitle && <p className="text-sm mb-6" style={{ color: "#6B7268" }}>{subtitle}</p>}
-      <div className="mt-5">{children}</div>
-    </div>
-  );
+const WORKOUT_TYPES = ['Gym / Weight Training', 'Running / Cardio', 'Yoga / Pilates', 'Swimming', 'Sports', 'Walking']
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const DAY_MAP: Record<string, string> = { Mon: 'monday', Tue: 'tuesday', Wed: 'wednesday', Thu: 'thursday', Fri: 'friday', Sat: 'saturday', Sun: 'sunday' }
+const FOOD_CHIPS = ['North Indian', 'South Indian', 'Bengali', 'Gujarati', 'Continental', 'Chinese/Asian', 'Mixed']
+const ALLERGY_CHIPS = ['Peanuts', 'Gluten', 'Soy', 'Shellfish', 'Lactose', 'Tree nuts']
+const DISLIKE_CHIPS = ['Mushrooms', 'Bitter gourd', 'Brinjal', 'Okra', 'Seafood', 'Beetroot']
+
+function toggle<T>(arr: T[], val: T): T[] {
+  return arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]
 }
 
-function OptionButton({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button type="button" onClick={onClick}
-      className="w-full text-left px-4 py-3 rounded-xl border-2 transition-all font-medium text-sm"
-      style={{
-        borderColor: selected ? "#2D4A3E" : "#E8E4DC",
-        backgroundColor: selected ? "rgba(45,74,62,0.06)" : "#FFFFFF",
-        color: selected ? "#2D4A3E" : "#1A1F1B",
-      }}>
-      {children}
-    </button>
-  );
-}
+export default function OnboardingPage() {
+  const router = useRouter()
+  const [step, setStep] = useState(1)
+  const [form, setForm] = useState<FormData>(INITIAL)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-function Toggle({ checked, onChange, label, description }: { checked: boolean; onChange: (v: boolean) => void; label: string; description?: string }) {
-  return (
-    <div className="flex items-center justify-between p-4 rounded-xl" style={{ backgroundColor: "#FAF8F3" }}>
-      <div>
-        <div className="font-medium text-sm" style={{ color: "#1A1F1B" }}>{label}</div>
-        {description && <div className="text-xs mt-0.5" style={{ color: "#6B7268" }}>{description}</div>}
-      </div>
-      <button type="button" onClick={() => onChange(!checked)}
-        className="relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors"
-        style={{ backgroundColor: checked ? "#2D4A3E" : "#D1D5DB" }}>
-        <span className="inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform mt-0.5"
-          style={{ transform: checked ? "translateX(1.25rem)" : "translateX(0.125rem)" }} />
-      </button>
-    </div>
-  );
-}
+  const set = <K extends keyof FormData>(key: K, val: FormData[K]) =>
+    setForm(f => ({ ...f, [key]: val }))
 
-function TagSelector({ options, selected, onChange }: { options: string[]; selected: string[]; onChange: (v: string[]) => void }) {
-  const toggle = (opt: string) => {
-    onChange(selected.includes(opt) ? selected.filter(s => s !== opt) : [...selected, opt]);
-  };
-  return (
-    <div className="flex flex-wrap gap-2">
-      {options.map(opt => (
-        <button key={opt} type="button" onClick={() => toggle(opt)}
-          className="px-3 py-1.5 rounded-full text-sm border transition-all"
-          style={{
-            borderColor: selected.includes(opt) ? "#2D4A3E" : "#E8E4DC",
-            backgroundColor: selected.includes(opt) ? "#2D4A3E" : "#FFFFFF",
-            color: selected.includes(opt) ? "#FFFFFF" : "#1A1F1B",
-          }}>
-          {opt}
-        </button>
-      ))}
-    </div>
-  );
-}
+  const macros = useMemo(() => {
+    if (!form.height_cm || !form.weight_kg || !form.age || !form.sex || !form.activity_level || !form.goal) return null
+    return calculateMacros({
+      height_cm: form.height_cm, weight_kg: form.weight_kg, age: form.age,
+      sex: form.sex as Sex, activity_level: form.activity_level as ActivityLevel,
+      goal: form.goal as Goal, condition: form.condition, target_kg: form.target_kg, target_weeks: form.target_weeks,
+    })
+  }, [form.height_cm, form.weight_kg, form.age, form.sex, form.activity_level, form.goal, form.condition, form.target_kg, form.target_weeks])
 
-// ============================================================
-// MAIN ONBOARDING
-// ============================================================
-function OnboardingContent() {
-  const searchParams = useSearchParams();
-  const tgId = searchParams.get("tg");
-
-  const [step, setStep] = useState(1);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const [computedMacros, setComputedMacros] = useState<ReturnType<typeof calculateMacros> | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [savedUserId, setSavedUserId] = useState<string | null>(null);
-  const [weekPlan, setWeekPlan] = useState<Record<string, unknown>[] | null>(null);
-  const [planLoading, setPlanLoading] = useState(false);
-  const [activeDay, setActiveDay] = useState(new Date().getDay());
-  const [editingSlot, setEditingSlot] = useState<{ dayIndex: number; slotName: string } | null>(null);
-  const [editText, setEditText] = useState("");
-
-  const [profile, setProfile] = useState<Profile>({
-    telegramChatId: tgId ? parseInt(tgId, 10) : null,
-    phone: "",
-    telegram_username: "",
-    goal: null,
-    condition: "",
-    target_kg: 5,
-    target_weeks: 12,
-    height_cm: 170,
-    weight_kg: 70,
-    age: 28,
-    sex: null,
-    activity_level: null,
-    okay_with_dairy: true,
-    okay_with_eggs: true,
-    okay_with_meat_fish: true,
-    food_style: [],
-    food_style_notes: "",
-    food_region_note: "",
-    allergies: [],
-    dislikes: [],
-    dislikes_notes: "",
-    works_out: false,
-    workout_types: [],
-    workout_days: [],
-    workout_time: "",
-    region: null,
-    budget_weekly: 2000,
-    max_cooking_time: null,
-    meal_preps: false,
-    wake_time: "07:00",
-    sleep_time: "23:00",
-  });
-
-  function update<K extends keyof Profile>(key: K, value: Profile[K]) {
-    setProfile(p => ({ ...p, [key]: value }));
+  const canProceed = (): boolean => {
+    if (step === 1) return !!form.goal
+    if (step === 3) return !!form.height_cm && !!form.weight_kg && !!form.age && !!form.sex
+    if (step === 4) return !!form.activity_level
+    if (step === 9) return !!form.name && !!form.phone_number
+    return true
   }
 
-  // Poll for plan after save (Gemini takes ~20-30 seconds)
-  useEffect(() => {
-    if (!planLoading || !savedUserId || weekPlan) return;
-    let attempts = 0;
-    const interval = setInterval(async () => {
-      attempts++;
-      try {
-        const res = await fetch(`/api/plan?uid=${savedUserId}`);
-        const data = await res.json();
-        if (data.days?.length) {
-          setWeekPlan(data.days as Record<string, unknown>[]);
-          setPlanLoading(false);
-          clearInterval(interval);
-        }
-      } catch { /* ignore */ }
-      if (attempts >= 12) {
-        setPlanLoading(false);
-        clearInterval(interval);
-      }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [planLoading, savedUserId, weekPlan]);
-
-  function canAdvance(): boolean {
-    switch (step) {
-      case 1: return profile.goal !== null;
-      case 2: return profile.height_cm > 0 && profile.weight_kg > 0 && profile.age > 0 && profile.sex !== null;
-      case 3: return profile.activity_level !== null;
-      case 8: return profile.max_cooking_time !== null;
-      case 10: return true; // contact step is optional
-      default: return true;
-    }
-  }
-
-  async function handleNext() {
-    if (step < TOTAL_STEPS - 1) {
-      setStep(s => s + 1);
-    } else if (step === TOTAL_STEPS - 1) {
-      if (profile.height_cm && profile.weight_kg && profile.age && profile.sex && profile.activity_level && profile.goal) {
-        const macros = calculateMacros({
-          height_cm: profile.height_cm,
-          weight_kg: profile.weight_kg,
-          age: profile.age,
-          sex: profile.sex,
-          activity_level: profile.activity_level,
-          goal: profile.goal,
-          condition: profile.condition || undefined,
-          target_kg: profile.target_kg,
-          target_weeks: profile.target_weeks,
-        });
-        setComputedMacros(macros);
-      }
-      setStep(TOTAL_STEPS);
-    }
-  }
-
-  async function handleSubmit() {
-    if (!computedMacros) return;
-    setSubmitError("");
-    setSubmitting(true);
-
+  const handleSubmit = async () => {
+    setLoading(true)
+    setError('')
     try {
-      const res = await fetch("/api/onboarding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          telegramChatId: tgId ? parseInt(tgId) : null,
-          goal: profile.goal,
-          condition: profile.condition || null,
-          target_kg: profile.target_kg,
-          target_weeks: profile.target_weeks,
-          height_cm: profile.height_cm,
-          weight_kg: profile.weight_kg,
-          age: profile.age,
-          sex: profile.sex,
-          activity_level: profile.activity_level,
-          okay_with_dairy: profile.okay_with_dairy,
-          okay_with_eggs: profile.okay_with_eggs,
-          okay_with_meat_fish: profile.okay_with_meat_fish,
-          food_style: profile.food_style,
-          food_style_notes: [profile.food_style_notes, profile.food_region_note].filter(Boolean).join(" | ") || null,
-          allergies: profile.allergies,
-          dislikes: profile.dislikes,
-          dislikes_notes: profile.dislikes_notes || null,
-          works_out: profile.works_out,
-          workout_type: profile.workout_types.join(", ") || null,
-          workout_days: profile.workout_days,
-          workout_time: profile.workout_time || null,
-          region: profile.region || null,
-          budget_weekly: profile.budget_weekly,
-          max_cooking_time: profile.max_cooking_time,
-          meal_preps: profile.meal_preps,
-          wake_time: profile.wake_time,
-          sleep_time: profile.sleep_time,
-          bmi: computedMacros.bmi,
-          bmr: computedMacros.bmr,
-          tdee: computedMacros.tdee,
-          target_kcal: computedMacros.target_kcal,
-          target_protein_g: computedMacros.target_protein_g,
-          target_carbs_g: computedMacros.target_carbs_g,
-          target_fat_g: computedMacros.target_fat_g,
-          onboarding_complete: true,
-          phone: profile.phone || null,
-          telegram_username: profile.telegram_username || null,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.userId) {
-        setSubmitError(data.error || "Failed to save your profile. Please try again.");
-        return;
+      const phone = form.phone_number.startsWith('+') ? form.phone_number : `+91${form.phone_number}`
+      const payload = {
+        name: form.name,
+        phone_number: phone,
+        telegram_username: form.telegram_username.replace('@', '') || null,
+        goal: form.goal, condition: form.condition || null, condition_notes: form.condition_notes || null,
+        target_kg: form.target_kg || null, target_weeks: form.target_weeks || null,
+        height_cm: form.height_cm, weight_kg: form.weight_kg, age: form.age, sex: form.sex,
+        activity_level: form.activity_level,
+        okay_with_dairy: form.okay_with_dairy, okay_with_eggs: form.okay_with_eggs, okay_with_meat_fish: form.okay_with_meat_fish,
+        food_style: form.food_style, food_style_notes: form.food_style_notes || null,
+        allergies: form.allergies, dislikes: form.dislikes, dislikes_notes: form.dislikes_notes || null,
+        works_out: form.works_out,
+        workout_type: form.workout_type.join(', ') || null,
+        workout_days: form.workout_days, workout_time: form.workout_time || null,
+        budget_weekly: form.budget_weekly, max_cooking_time: form.max_cooking_time || null, meal_preps: form.meal_preps,
+        wake_time: form.wake_time, sleep_time: form.sleep_time,
+        onboarding_complete: true,
+        ...(macros ? {
+          bmi: macros.bmi, bmr: macros.bmr, tdee: macros.tdee,
+          target_kcal: macros.target_kcal, target_protein_g: macros.target_protein_g,
+          target_carbs_g: macros.target_carbs_g, target_fat_g: macros.target_fat_g,
+        } : {}),
       }
-
-      setSavedUserId(data.userId);
-      setSaved(true);
-
-      // Open Telegram bot automatically
-      window.open("https://t.me/kanshi_bot", "_blank");
-
-      // Fetch the generated plan (may take 30s — show loading state)
-      setPlanLoading(true);
-      try {
-        const planRes = await fetch(`/api/plan?uid=${data.userId}`);
-        const planData = await planRes.json();
-        if (planData.days?.length) {
-          setWeekPlan(planData.days as Record<string, unknown>[]);
-        }
-      } catch {
-        // Plan will show loading state; user can check Telegram
-      } finally {
-        setPlanLoading(false);
-      }
+      const res = await fetch('/api/onboarding', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to save')
+      router.push(`/dashboard?uid=${data.userId}`)
     } catch (e) {
-      console.error("Submit error:", e);
-      setSubmitError("Something went wrong. Please try again.");
-    } finally {
-      setSubmitting(false);
+      setError(e instanceof Error ? e.message : 'Something went wrong')
+      setLoading(false)
     }
   }
 
-  const bmiInfo = profile.height_cm && profile.weight_kg
-    ? getBMILabel(Math.round((profile.weight_kg / Math.pow(profile.height_cm / 100, 2)) * 10) / 10)
-    : null;
-
-  const weeklyRate = profile.goal === "fat_loss"
-    ? Math.min(profile.target_kg / profile.target_weeks, 1.0).toFixed(2)
-    : null;
-
-  // no tgId warning removed — saving now works with or without Telegram link
+  const bmiInfo = macros ? getBMILabel(macros.bmi) : null
 
   return (
-    <div className="min-h-screen py-10 px-4" style={{ backgroundColor: "#FAF8F3" }}>
-      <div className="max-w-lg mx-auto">
-        <div className="text-center mb-8">
-          <span className="text-2xl font-bold" style={{ fontFamily: "Fraunces, Georgia, serif", color: "#2D4A3E" }}>
-            Lockin 🔒
-          </span>
+    <div className="min-h-screen bg-cream">
+      <div className="sticky top-0 bg-cream/95 backdrop-blur border-b border-[#E8E4DC] z-10">
+        <div className="max-w-lg mx-auto px-5 py-4 flex items-center gap-4">
+          {step > 1 && (
+            <button onClick={() => setStep(s => s - 1)} className="text-[#6B7268] hover:text-ink transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
+          <div className="flex-1 flex gap-1">
+            {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+              <div key={i} className="h-1 flex-1 rounded-full transition-all duration-300"
+                style={{ backgroundColor: i < step ? '#2D4A3E' : '#E8E4DC' }} />
+            ))}
+          </div>
+          <span className="text-xs text-[#6B7268] font-medium">{step}/{TOTAL_STEPS}</span>
         </div>
+      </div>
 
-        <ProgressBar step={step} />
-        <div className="mt-6" />
+      <div className="max-w-lg mx-auto px-5 py-8">
 
-        {/* ── Step 1: Goal ── */}
         {step === 1 && (
-          <StepCard title="What's your goal?" subtitle="We'll set your calorie and macro targets around this.">
-            <div className="space-y-3">
-              {[
-                { value: "fat_loss", label: "Fat loss", desc: "Lose weight while preserving muscle" },
-                { value: "muscle_gain", label: "Muscle gain", desc: "Lean bulk — build size with minimal fat" },
-                { value: "clean_eating", label: "Clean eating", desc: "Eat well at maintenance, no extreme cuts" },
-                { value: "manage_condition", label: "Manage a condition", desc: "Diabetes, PCOS, thyroid, etc." },
-              ].map(opt => (
-                <OptionButton key={opt.value} selected={profile.goal === opt.value} onClick={() => update("goal", opt.value as Goal)}>
-                  <div className="font-semibold">{opt.label}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "#6B7268" }}>{opt.desc}</div>
-                </OptionButton>
+          <div>
+            <h2 className="font-display text-2xl font-bold text-ink mb-1">What do you want to achieve?</h2>
+            <p className="text-[#6B7268] mb-6">Your goal shapes everything — calories, protein, meal timing.</p>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {([
+                { val: 'fat_loss', label: 'Lose Fat', sub: 'Calorie deficit, preserve muscle' },
+                { val: 'muscle_gain', label: 'Build Muscle', sub: 'Calorie surplus, high protein' },
+                { val: 'clean_eating', label: 'Eat Cleaner', sub: 'Whole foods, balanced macros' },
+                { val: 'manage_condition', label: 'Manage Condition', sub: 'PCOS, diabetes, thyroid...' },
+              ] as { val: Goal; label: string; sub: string }[]).map(g => (
+                <button key={g.val} onClick={() => set('goal', g.val)}
+                  className={`p-4 rounded-xl border-2 text-left transition-all duration-200 ${form.goal === g.val ? 'border-[#2D4A3E] bg-[#2D4A3E]/5' : 'border-[#E8E4DC] bg-white hover:border-[#2D4A3E]/30'}`}>
+                  <div className="font-medium text-ink text-sm mb-1">{g.label}</div>
+                  <div className="text-xs text-[#6B7268]">{g.sub}</div>
+                </button>
               ))}
             </div>
-
-            {profile.goal === "manage_condition" && (
+            {form.goal === 'manage_condition' && (
               <div className="mt-4">
-                <label className="text-sm font-medium" style={{ color: "#1A1F1B" }}>Which condition?</label>
-                <input type="text" placeholder="e.g. Diabetes, PCOS, thyroid..."
-                  value={profile.condition} onChange={e => update("condition", e.target.value)}
-                  className="mt-2 w-full border rounded-xl px-4 py-3 text-sm outline-none"
-                  style={{ borderColor: "#E8E4DC" }} />
+                <Label className="mb-2 block">Which condition?</Label>
+                <div className="flex flex-wrap gap-2">
+                  {['PCOS', 'Type 2 Diabetes', 'Hypertension', 'Thyroid', 'High Cholesterol'].map(c => (
+                    <button key={c} onClick={() => set('condition', form.condition === c ? '' : c)}
+                      className={`px-3 py-1.5 rounded-full text-sm transition-all ${form.condition === c ? 'bg-[#2D4A3E] text-white' : 'bg-white border border-[#D8D4CC] text-ink hover:border-[#2D4A3E]'}`}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
+          </div>
+        )}
 
-            {profile.goal === "fat_loss" && (
-              <div className="mt-5 space-y-4 p-4 rounded-xl" style={{ backgroundColor: "#FAF8F3" }}>
+        {step === 2 && (
+          <div>
+            <h2 className="font-display text-2xl font-bold text-ink mb-1">
+              {form.goal === 'fat_loss' ? 'How much do you want to lose, and by when?' :
+               form.goal === 'muscle_gain' ? 'How much muscle do you want to gain?' :
+               form.goal === 'clean_eating' ? "You're on your way." : 'Any specific targets?'}
+            </h2>
+            {form.goal === 'clean_eating' ? (
+              <p className="text-[#6B7268]">Clean eating is about consistency, not a number. We will set you up with balanced whole-food meals.</p>
+            ) : form.goal === 'manage_condition' ? (
+              <div>
+                <p className="text-[#6B7268] mb-4">Any specific targets from your doctor? (Optional)</p>
+                <Textarea placeholder="e.g. Keep fasting glucose under 110..." value={form.condition_notes}
+                  onChange={e => set('condition_notes', e.target.value)} className="min-h-[100px]" />
+                <p className="text-xs text-[#6B7268] mt-2">This is not medical advice. Always follow your doctor's guidance.</p>
+              </div>
+            ) : (
+              <div className="mt-6 space-y-6">
                 <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Target loss</span>
-                    <span className="font-semibold">{profile.target_kg} kg</span>
-                  </div>
-                  <input type="range" min={1} max={40} step={1} value={profile.target_kg}
-                    onChange={e => update("target_kg", parseInt(e.target.value))} className="w-full" />
+                  <Label className="mb-3 block">Weight to {form.goal === 'fat_loss' ? 'lose' : 'gain'}: <strong>{form.target_kg} kg</strong></Label>
+                  <Slider min={2} max={form.goal === 'muscle_gain' ? 10 : 20} step={0.5} value={[form.target_kg]} onValueChange={([v]) => set('target_kg', v)} />
                 </div>
                 <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Timeframe</span>
-                    <span className="font-semibold">{profile.target_weeks} weeks</span>
-                  </div>
-                  <input type="range" min={4} max={52} step={1} value={profile.target_weeks}
-                    onChange={e => update("target_weeks", parseInt(e.target.value))} className="w-full" />
+                  <Label className="mb-3 block">Timeline: <strong>{form.target_weeks} weeks</strong></Label>
+                  <Slider min={form.goal === 'muscle_gain' ? 8 : 4} max={52} step={1} value={[form.target_weeks]} onValueChange={([v]) => set('target_weeks', v)} />
                 </div>
-                {weeklyRate && (
-                  <div className="text-xs px-3 py-2 rounded-lg"
-                    style={{
-                      backgroundColor: parseFloat(weeklyRate) > 0.75 ? "rgba(198,107,92,0.1)" : "rgba(123,160,136,0.15)",
-                      color: parseFloat(weeklyRate) > 0.75 ? "#C66B5C" : "#2D4A3E",
-                    }}>
-                    {parseFloat(weeklyRate) > 0.75
-                      ? `⚠ ${weeklyRate} kg/week is aggressive. We'll cap at 1.0 kg/week for safety.`
-                      : `✓ ${weeklyRate} kg/week — sustainable pace`}
+                {form.target_kg > 0 && form.target_weeks > 0 && (
+                  <div className="bg-white rounded-xl p-4 border border-[#E8E4DC]">
+                    <div className="text-sm font-medium text-ink">
+                      That is {(form.target_kg / form.target_weeks).toFixed(2)} kg/week
+                    </div>
+                    <div className={`text-sm mt-1 ${form.target_kg / form.target_weeks > 1 ? 'text-[#D4A574]' : 'text-[#7BA088]'}`}>
+                      {getWeeklyRateLabel(form.target_kg / form.target_weeks, form.goal)}
+                    </div>
+                    {form.target_kg / form.target_weeks > 1 && (
+                      <p className="text-xs text-[#6B7268] mt-1">That is aggressive. 0.5-0.75 kg/week is more sustainable.</p>
+                    )}
                   </div>
                 )}
               </div>
             )}
-          </StepCard>
+          </div>
         )}
 
-        {/* ── Step 2: Body Stats ── */}
-        {step === 2 && (
-          <StepCard title="Your body stats" subtitle="Used to calculate your BMR and TDEE accurately.">
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-medium mb-1 block" style={{ color: "#6B7268" }}>Height (cm)</label>
-                  <input type="number" min={100} max={250} value={profile.height_cm || ""}
-                    onChange={e => update("height_cm", parseFloat(e.target.value))}
-                    className="w-full border rounded-xl px-4 py-3 text-sm outline-none" style={{ borderColor: "#E8E4DC" }} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block" style={{ color: "#6B7268" }}>Weight (kg)</label>
-                  <input type="number" min={30} max={300} step={0.1} value={profile.weight_kg || ""}
-                    onChange={e => update("weight_kg", parseFloat(e.target.value))}
-                    className="w-full border rounded-xl px-4 py-3 text-sm outline-none" style={{ borderColor: "#E8E4DC" }} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-medium mb-1 block" style={{ color: "#6B7268" }}>Age</label>
-                  <input type="number" min={18} max={90} value={profile.age || ""}
-                    onChange={e => update("age", parseInt(e.target.value))}
-                    className="w-full border rounded-xl px-4 py-3 text-sm outline-none" style={{ borderColor: "#E8E4DC" }} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block" style={{ color: "#6B7268" }}>Sex</label>
-                  <div className="flex gap-2">
-                    {(["male", "female", "other"] as Sex[]).map(s => (
-                      <button key={s} type="button" onClick={() => update("sex", s)}
-                        className="flex-1 py-3 rounded-xl text-xs font-medium border capitalize transition-all"
-                        style={{
-                          borderColor: profile.sex === s ? "#2D4A3E" : "#E8E4DC",
-                          backgroundColor: profile.sex === s ? "#2D4A3E" : "#FFFFFF",
-                          color: profile.sex === s ? "#FFFFFF" : "#1A1F1B",
-                        }}>
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {bmiInfo && profile.height_cm > 100 && profile.weight_kg > 0 && (
-                <div className="flex items-center justify-between p-4 rounded-xl" style={{ backgroundColor: "#FAF8F3" }}>
-                  <span className="text-sm" style={{ color: "#6B7268" }}>Your BMI</span>
-                  <span className="font-bold text-lg">
-                    {(profile.weight_kg / Math.pow(profile.height_cm / 100, 2)).toFixed(1)}
-                    <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full"
-                      style={{ backgroundColor: `${bmiInfo.color}20`, color: bmiInfo.color }}>
-                      {bmiInfo.label}
-                    </span>
-                  </span>
-                </div>
-              )}
-            </div>
-          </StepCard>
-        )}
-
-        {/* ── Step 3: Activity Level ── */}
         {step === 3 && (
-          <StepCard title="How active are you?" subtitle="Day-to-day activity outside formal exercise.">
-            <div className="space-y-3">
-              {[
-                { value: "sedentary", label: "Sedentary", desc: "Desk job, mostly sitting all day" },
-                { value: "light", label: "Lightly active", desc: "Walking, light work, some movement" },
-                { value: "active", label: "Active", desc: "On your feet most of the day" },
-                { value: "very_active", label: "Very active", desc: "Manual labour, intense daily movement" },
-              ].map(opt => (
-                <OptionButton key={opt.value} selected={profile.activity_level === opt.value}
-                  onClick={() => update("activity_level", opt.value as ActivityLevel)}>
-                  <div className="font-semibold">{opt.label}</div>
-                  <div className="text-xs mt-0.5" style={{ color: "#6B7268" }}>{opt.desc}</div>
-                </OptionButton>
-              ))}
+          <div>
+            <h2 className="font-display text-2xl font-bold text-ink mb-1">Your body stats</h2>
+            <p className="text-[#6B7268] mb-6">Used to calculate your exact calorie and protein targets.</p>
+            <div className="space-y-5">
+              <div>
+                <Label className="mb-2 block">Height: <strong>{form.height_cm} cm</strong></Label>
+                <Slider min={140} max={220} step={1} value={[form.height_cm]} onValueChange={([v]) => set('height_cm', v)} />
+              </div>
+              <div>
+                <Label className="mb-2 block">Weight: <strong>{form.weight_kg} kg</strong></Label>
+                <Slider min={35} max={160} step={0.5} value={[form.weight_kg]} onValueChange={([v]) => set('weight_kg', v)} />
+              </div>
+              <div>
+                <Label className="mb-2 block">Age</Label>
+                <Input type="number" value={form.age || ''} onChange={e => set('age', Number(e.target.value))} placeholder="25" min={15} max={80} />
+              </div>
+              <div>
+                <Label className="mb-2 block">Sex</Label>
+                <div className="flex gap-3">
+                  {(['male', 'female', 'other'] as Sex[]).map(s => (
+                    <button key={s} onClick={() => set('sex', s)}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-medium capitalize transition-all ${form.sex === s ? 'bg-[#2D4A3E] text-white' : 'bg-white border border-[#D8D4CC] text-ink hover:border-[#2D4A3E]'}`}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </StepCard>
-        )}
-
-        {/* ── Step 4: Fitness Routine ── */}
-        {step === 4 && (
-          <StepCard title="Do you exercise?" subtitle="Workout days get +12% calories automatically.">
-            <div className="space-y-3">
-              {[
-                { value: "yes", label: "Yes, regularly" },
-                { value: "sometimes", label: "Sometimes" },
-                { value: "no", label: "No" },
-              ].map(opt => (
-                <OptionButton key={opt.value}
-                  selected={profile.workout_time === opt.value}
-                  onClick={() => {
-                    update("workout_time", opt.value);
-                    update("works_out", opt.value !== "no");
-                  }}>
-                  {opt.label}
-                </OptionButton>
-              ))}
-            </div>
-
-            {profile.works_out && (
-              <div className="mt-5 space-y-5">
-                <div>
-                  <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>What do you do? (select all)</label>
-                  <div className="space-y-2">
-                    {WORKOUT_TYPE_OPTIONS.map(opt => (
-                      <button key={opt.value} type="button"
-                        onClick={() => {
-                          const types = profile.workout_types.includes(opt.value)
-                            ? profile.workout_types.filter(t => t !== opt.value)
-                            : [...profile.workout_types, opt.value];
-                          update("workout_types", types);
-                        }}
-                        className="w-full text-left px-4 py-3 rounded-xl border-2 text-sm font-medium transition-all"
-                        style={{
-                          borderColor: profile.workout_types.includes(opt.value) ? "#2D4A3E" : "#E8E4DC",
-                          backgroundColor: profile.workout_types.includes(opt.value) ? "rgba(45,74,62,0.06)" : "#FFFFFF",
-                          color: profile.workout_types.includes(opt.value) ? "#2D4A3E" : "#1A1F1B",
-                        }}>
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>Which days?</label>
-                  <div className="flex flex-wrap gap-2">
-                    {WORKOUT_DAYS_OPTIONS.map((d, i) => (
-                      <button key={d} type="button"
-                        onClick={() => {
-                          const full = WORKOUT_DAYS_FULL[i];
-                          const days = profile.workout_days.includes(full)
-                            ? profile.workout_days.filter(x => x !== full)
-                            : [...profile.workout_days, full];
-                          update("workout_days", days);
-                        }}
-                        className="px-3 py-1.5 rounded-full text-xs font-medium border transition-all"
-                        style={{
-                          borderColor: profile.workout_days.includes(WORKOUT_DAYS_FULL[i]) ? "#2D4A3E" : "#E8E4DC",
-                          backgroundColor: profile.workout_days.includes(WORKOUT_DAYS_FULL[i]) ? "#2D4A3E" : "#FFFFFF",
-                          color: profile.workout_days.includes(WORKOUT_DAYS_FULL[i]) ? "#FFFFFF" : "#1A1F1B",
-                        }}>
-                        {d}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>When?</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {["Morning (before 10am)", "Afternoon", "Evening (after 5pm)", "Varies"].map(t => (
-                      <OptionButton key={t} selected={profile.workout_time === t.toLowerCase()}
-                        onClick={() => update("workout_time", t.toLowerCase())}>
-                        <span className="text-sm">{t}</span>
-                      </OptionButton>
-                    ))}
-                  </div>
-                </div>
+            {macros && (
+              <div className="mt-6 bg-white rounded-xl p-4 border border-[#E8E4DC]">
+                <div className="text-sm text-[#6B7268] mb-1">Your BMI</div>
+                <div className="text-2xl font-display font-bold" style={{ color: bmiInfo?.color }}>{macros.bmi}</div>
+                <div className="text-sm font-medium" style={{ color: bmiInfo?.color }}>{bmiInfo?.label}</div>
               </div>
             )}
-          </StepCard>
+          </div>
         )}
 
-        {/* ── Step 5: Food Comfort ── */}
-        {step === 5 && (
-          <StepCard title="Food comfort" subtitle="We'll only suggest food you're comfortable with.">
-            <div className="space-y-3">
-              <Toggle checked={profile.okay_with_dairy} onChange={v => update("okay_with_dairy", v)}
-                label="Okay with dairy" description="Milk, curd, paneer, cheese" />
-              <Toggle checked={profile.okay_with_eggs} onChange={v => update("okay_with_eggs", v)}
-                label="Okay with eggs" description="Egg whites, whole eggs, egg dishes" />
-              <Toggle checked={profile.okay_with_meat_fish} onChange={v => update("okay_with_meat_fish", v)}
-                label="Okay with meat & fish" description="Chicken, mutton, fish, seafood" />
-            </div>
-          </StepCard>
-        )}
-
-        {/* ── Step 6: Food Style ── */}
-        {step === 6 && (
-          <StepCard title="Your food style" subtitle="Describe it naturally — we use this to personalise every meal.">
-            <div className="space-y-4">
+        {step === 4 && (
+          <div>
+            <h2 className="font-display text-2xl font-bold text-ink mb-1">Activity and exercise</h2>
+            <p className="text-[#6B7268] mb-6">Affects your daily calorie burn and meal timing.</p>
+            <div className="space-y-6">
               <div>
-                <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>
-                  Describe your everyday food in a sentence
-                </label>
-                <textarea rows={3} value={profile.food_style_notes}
-                  onChange={e => update("food_style_notes", e.target.value)}
-                  className="w-full border rounded-xl px-4 py-3 text-sm outline-none resize-none"
-                  style={{ borderColor: "#E8E4DC" }}
-                  placeholder={[
-                    "Dal chawal, chicken curry, the usual Punjabi stuff",
-                    "Mostly South Indian — idli, dosa, sambar",
-                    "Whatever's quick — oats, eggs, sandwiches",
-                    "Gujarati at home, continental outside",
-                  ][Math.floor(Date.now() / 5000) % 4]}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-2 block" style={{ color: "#6B7268" }}>Quick select (tap to add):</label>
-                <div className="flex flex-wrap gap-2">
-                  {FOOD_STYLE_CHIPS.map(chip => (
-                    <button key={chip} type="button"
-                      onClick={() => {
-                        update("food_style", profile.food_style.includes(chip)
-                          ? profile.food_style.filter(s => s !== chip)
-                          : [...profile.food_style, chip]);
-                        if (!profile.food_style.includes(chip)) {
-                          update("food_style_notes", (profile.food_style_notes + " " + chip).trim());
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-full text-sm border transition-all"
-                      style={{
-                        borderColor: profile.food_style.includes(chip) ? "#2D4A3E" : "#E8E4DC",
-                        backgroundColor: profile.food_style.includes(chip) ? "#2D4A3E" : "#FFFFFF",
-                        color: profile.food_style.includes(chip) ? "#FFFFFF" : "#1A1F1B",
-                      }}>
-                      {chip}
+                <Label className="mb-3 block">How active is your day-to-day?</Label>
+                <div className="space-y-2">
+                  {([
+                    { val: 'sedentary', label: 'Sedentary', sub: 'Desk job, barely move' },
+                    { val: 'light', label: 'Lightly Active', sub: 'Some walking, light activity' },
+                    { val: 'active', label: 'Active', sub: 'On your feet a lot' },
+                    { val: 'very_active', label: 'Very Active', sub: 'Physical job or very active lifestyle' },
+                  ] as { val: ActivityLevel; label: string; sub: string }[]).map(a => (
+                    <button key={a.val} onClick={() => set('activity_level', a.val)}
+                      className={`w-full p-3.5 rounded-xl border-2 text-left transition-all ${form.activity_level === a.val ? 'border-[#2D4A3E] bg-[#2D4A3E]/5' : 'border-[#E8E4DC] bg-white hover:border-[#2D4A3E]/30'}`}>
+                      <span className="font-medium text-sm text-ink">{a.label}</span>
+                      <span className="text-xs text-[#6B7268] ml-2">-- {a.sub}</span>
                     </button>
                   ))}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>
-                  Living somewhere different from where you grew up?
-                </label>
-                <input type="text" value={profile.food_region_note}
-                  onChange={e => update("food_region_note", e.target.value)}
-                  placeholder="e.g. From Kerala, living in Gurgaon"
-                  className="w-full border rounded-xl px-4 py-3 text-sm outline-none"
-                  style={{ borderColor: "#E8E4DC" }} />
-              </div>
-            </div>
-          </StepCard>
-        )}
-
-        {/* ── Step 7: Allergies & Dislikes ── */}
-        {step === 7 && (
-          <StepCard title="Allergies & dislikes" subtitle="These will never appear in your plan.">
-            <div className="space-y-5">
-              <div>
-                <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>Allergies</label>
-                <TagSelector options={ALLERGY_OPTIONS} selected={profile.allergies} onChange={v => update("allergies", v)} />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>Dislikes</label>
-                <TagSelector options={DISLIKE_OPTIONS} selected={profile.dislikes} onChange={v => update("dislikes", v)} />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>
-                  Anything else about food we should know?
-                </label>
-                <textarea rows={3} value={profile.dislikes_notes}
-                  onChange={e => update("dislikes_notes", e.target.value)}
-                  className="w-full border rounded-xl px-4 py-3 text-sm outline-none resize-none"
-                  style={{ borderColor: "#E8E4DC" }}
-                  placeholder={[
-                    "I can't digest milk after evening",
-                    "Soya gives me gas, avoid after lunch",
-                    "Bhindi nahi khata, arbi se allergy hai",
-                    "No maida items please",
-                    "I only eat fish on weekends",
-                  ][Math.floor(Date.now() / 5000) % 5]}
-                />
-                <p className="text-xs mt-1" style={{ color: "#6B7268" }}>Hindi is totally fine here 🙂</p>
-              </div>
-            </div>
-          </StepCard>
-        )}
-
-        {/* ── Step 8: Cooking Style ── */}
-        {step === 8 && (
-          <StepCard title="How do you handle meals?" subtitle="Helps us suggest recipes that actually fit your life.">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                {[
-                  { value: "under_15", label: "🏃 Zero cooking", desc: "Ready-to-eat or 5-min meals only" },
-                  { value: "15_30", label: "🍳 Quick cooking", desc: "15 min max, simple stuff" },
-                  { value: "30_45", label: "👨‍🍳 I can cook", desc: "30 min meals are fine" },
-                  { value: "45_plus", label: "🧑‍🍳 I enjoy cooking", desc: "Happy to spend 45+ min" },
-                ].map(opt => (
-                  <OptionButton key={opt.value} selected={profile.max_cooking_time === opt.value}
-                    onClick={() => update("max_cooking_time", opt.value as CookingTime)}>
-                    <div className="font-semibold text-sm">{opt.label}</div>
-                    <div className="text-xs" style={{ color: "#6B7268" }}>{opt.desc}</div>
-                  </OptionButton>
-                ))}
-              </div>
-              <div className="mt-2">
-                <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>
-                  Do you batch cook or meal prep on weekends?
-                </label>
+                <Label className="mb-3 block">Do you exercise regularly?</Label>
                 <div className="flex gap-3">
-                  {[
-                    { v: true, l: "Yes, I batch cook" },
-                    { v: false, l: "No / Sometimes" },
-                  ].map(opt => (
-                    <OptionButton key={String(opt.v)} selected={profile.meal_preps === opt.v}
-                      onClick={() => update("meal_preps", opt.v)}>
-                      <span className="text-sm">{opt.l}</span>
-                    </OptionButton>
+                  {[{ label: 'Yes', val: true }, { label: 'No', val: false }].map(o => (
+                    <button key={String(o.val)} onClick={() => set('works_out', o.val)}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${form.works_out === o.val ? 'bg-[#2D4A3E] text-white' : 'bg-white border border-[#D8D4CC] text-ink hover:border-[#2D4A3E]'}`}>
+                      {o.label}
+                    </button>
                   ))}
                 </div>
               </div>
+              {form.works_out && (
+                <>
+                  <div>
+                    <Label className="mb-3 block">What do you do? (select all that apply)</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {WORKOUT_TYPES.map(t => (
+                        <button key={t} onClick={() => set('workout_type', toggle(form.workout_type, t))}
+                          className={`px-3 py-1.5 rounded-full text-sm transition-all ${form.workout_type.includes(t) ? 'bg-[#2D4A3E] text-white' : 'bg-white border border-[#D8D4CC] text-ink hover:border-[#2D4A3E]'}`}>
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="mb-3 block">Which days?</Label>
+                    <div className="flex gap-2 flex-wrap">
+                      {DAYS.map(d => (
+                        <button key={d} onClick={() => set('workout_days', toggle(form.workout_days, DAY_MAP[d]))}
+                          className={`w-11 h-11 rounded-xl text-sm font-medium transition-all ${form.workout_days.includes(DAY_MAP[d]) ? 'bg-[#2D4A3E] text-white' : 'bg-white border border-[#D8D4CC] text-ink hover:border-[#2D4A3E]'}`}>
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="mb-3 block">When do you usually work out?</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { label: 'Morning (before 10am)', val: '08:00' },
+                        { label: 'Afternoon', val: '13:00' },
+                        { label: 'Evening (after 5pm)', val: '18:00' },
+                        { label: 'Varies', val: '' },
+                      ].map(o => (
+                        <button key={o.label} onClick={() => set('workout_time', o.val)}
+                          className={`px-3 py-1.5 rounded-full text-sm transition-all ${form.workout_time === o.val ? 'bg-[#2D4A3E] text-white' : 'bg-white border border-[#D8D4CC] text-ink hover:border-[#2D4A3E]'}`}>
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-          </StepCard>
+          </div>
         )}
 
-        {/* ── Step 9: Budget & Schedule ── */}
-        {step === 9 && (
-          <StepCard title="Budget & schedule">
-            <div className="space-y-5">
-              <div>
-                <div className="flex justify-between text-sm mb-2" style={{ color: "#1A1F1B" }}>
-                  <span>Weekly grocery budget</span>
-                  <span className="font-semibold">₹{profile.budget_weekly.toLocaleString()}</span>
-                </div>
-                <input type="range" min={500} max={10000} step={500} value={profile.budget_weekly}
-                  onChange={e => update("budget_weekly", parseInt(e.target.value))} className="w-full" />
-                <div className="flex justify-between text-xs mt-1" style={{ color: "#6B7268" }}>
-                  <span>₹500</span><span>₹10,000</span>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>Wake time</label>
-                  <input type="time" value={profile.wake_time} onChange={e => update("wake_time", e.target.value)}
-                    className="w-full border rounded-xl px-4 py-3 text-sm outline-none" style={{ borderColor: "#E8E4DC" }} />
-                </div>
-                <div>
-                  <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>Sleep time</label>
-                  <input type="time" value={profile.sleep_time} onChange={e => update("sleep_time", e.target.value)}
-                    className="w-full border rounded-xl px-4 py-3 text-sm outline-none" style={{ borderColor: "#E8E4DC" }} />
-                </div>
-              </div>
-            </div>
-          </StepCard>
-        )}
-
-        {/* ── Step 10: Contact / Telegram ── */}
-        {step === 10 && (
-          <StepCard title="How should we reach you?" subtitle="We'll send meal reminders and check-ins. Both fields are optional.">
+        {step === 5 && (
+          <div>
+            <h2 className="font-display text-2xl font-bold text-ink mb-1">What are you comfortable eating?</h2>
+            <p className="text-[#6B7268] mb-6">Turn off anything you do not eat. All on by default.</p>
             <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium mb-1 block" style={{ color: "#1A1F1B" }}>
-                  📱 Phone number
-                </label>
-                <input
-                  type="tel"
-                  placeholder="+91 98765 43210"
-                  value={profile.phone}
-                  onChange={e => update("phone", e.target.value)}
-                  className="w-full border rounded-xl px-4 py-3 text-sm outline-none"
-                  style={{ borderColor: "#E8E4DC" }}
-                />
-                <p className="text-xs mt-1" style={{ color: "#6B7268" }}>We'll send you a link to connect with the Telegram bot.</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block" style={{ color: "#1A1F1B" }}>
-                  ✈️ Telegram username
-                </label>
-                <input
-                  type="text"
-                  placeholder="@yourhandle"
-                  value={profile.telegram_username}
-                  onChange={e => update("telegram_username", e.target.value.replace(/^@+/, ''))}
-                  className="w-full border rounded-xl px-4 py-3 text-sm outline-none"
-                  style={{ borderColor: "#E8E4DC" }}
-                />
-              </div>
-              <p className="text-xs px-3 py-2 rounded-lg" style={{ backgroundColor: "#FAF8F3", color: "#6B7268" }}>
-                You can also skip this and connect Telegram after — your plan will still be visible here.
-              </p>
+              {([
+                { key: 'okay_with_dairy', label: 'Okay with dairy', sub: 'Milk, curd, paneer, cheese' },
+                { key: 'okay_with_eggs', label: 'Okay with eggs', sub: 'Whole eggs, egg whites, omelettes' },
+                { key: 'okay_with_meat_fish', label: 'Okay with meat and fish', sub: 'Chicken, mutton, fish, prawns' },
+              ] as { key: keyof FormData; label: string; sub: string }[]).map(item => (
+                <div key={item.key as string} className="flex items-center justify-between bg-white rounded-xl p-4 border border-[#E8E4DC]">
+                  <div>
+                    <div className="font-medium text-sm text-ink">{item.label}</div>
+                    <div className="text-xs text-[#6B7268]">{item.sub}</div>
+                  </div>
+                  <Switch checked={form[item.key] as boolean} onCheckedChange={v => set(item.key, v as FormData[typeof item.key])} />
+                </div>
+              ))}
             </div>
-          </StepCard>
+          </div>
         )}
 
-        {/* ── Step 11: Confirm targets ── */}
-        {step === 11 && computedMacros && !saved && (
-          <div className="space-y-4">
-            <div className="rounded-2xl p-8 text-center" style={{ backgroundColor: "#2D4A3E", color: "#FFFFFF" }}>
-              <div className="text-4xl font-bold mb-1" style={{ fontFamily: "Fraunces, Georgia, serif" }}>
-                You&apos;re locked in. 🔒
-              </div>
-              <p className="text-sm mt-2" style={{ color: "#7BA088" }}>Your personalised targets are ready.</p>
+        {step === 6 && (
+          <div>
+            <h2 className="font-display text-2xl font-bold text-ink mb-1">Describe your everyday food</h2>
+            <p className="text-[#6B7268] mb-4">We will plan meals you will actually want to eat.</p>
+            <Textarea placeholder="Dal chawal, chicken curry, the usual Punjabi stuff..." value={form.food_style_notes}
+              onChange={e => set('food_style_notes', e.target.value)} className="min-h-[100px] mb-4" />
+            <div className="flex flex-wrap gap-2 mb-4">
+              {FOOD_CHIPS.map(chip => (
+                <button key={chip} onClick={() => set('food_style', toggle(form.food_style, chip))}
+                  className={`px-3 py-1.5 rounded-full text-sm transition-all ${form.food_style.includes(chip) ? 'bg-[#2D4A3E] text-white' : 'bg-white border border-[#D8D4CC] text-ink hover:border-[#2D4A3E]'}`}>
+                  {chip}
+                </button>
+              ))}
             </div>
+          </div>
+        )}
 
-            <div className="rounded-2xl p-6" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
-              <div className="mb-5 pb-5" style={{ borderBottom: "1px solid #F0EDE6" }}>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm" style={{ color: "#6B7268" }}>Your BMI</span>
-                  <span>
-                    <span className="text-2xl font-bold" style={{ color: "#1A1F1B" }}>{computedMacros.bmi}</span>
-                    <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full"
-                      style={{ backgroundColor: `${getBMILabel(computedMacros.bmi).color}20`, color: getBMILabel(computedMacros.bmi).color }}>
-                      {getBMILabel(computedMacros.bmi).label}
-                    </span>
-                  </span>
+        {step === 7 && (
+          <div>
+            <h2 className="font-display text-2xl font-bold text-ink mb-1">Allergies and dislikes</h2>
+            <p className="text-[#6B7268] mb-6">We will never include these in your plan.</p>
+            <div className="space-y-6">
+              <div>
+                <Label className="mb-3 block font-medium">Foods you are allergic to</Label>
+                <div className="flex flex-wrap gap-2">
+                  {ALLERGY_CHIPS.map(a => (
+                    <button key={a} onClick={() => set('allergies', toggle(form.allergies, a))}
+                      className={`px-3 py-1.5 rounded-full text-sm transition-all ${form.allergies.includes(a) ? 'bg-[#C66B5C] text-white' : 'bg-white border border-[#D8D4CC] text-ink hover:border-[#C66B5C]'}`}>
+                      {a}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <div className="rounded-xl p-5 mb-4 text-center" style={{ backgroundColor: "rgba(45,74,62,0.06)" }}>
-                <div className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: "#5A7A6B" }}>Daily calorie target</div>
-                <div className="text-5xl font-bold" style={{ color: "#2D4A3E", fontFamily: "Fraunces, Georgia, serif" }}>
-                  {computedMacros.target_kcal.toLocaleString()}
+              <div>
+                <Label className="mb-3 block font-medium">Foods you just do not like</Label>
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {DISLIKE_CHIPS.map(d => (
+                    <button key={d} onClick={() => set('dislikes', toggle(form.dislikes, d))}
+                      className={`px-3 py-1.5 rounded-full text-sm transition-all ${form.dislikes.includes(d) ? 'bg-[#D4A574] text-white' : 'bg-white border border-[#D8D4CC] text-ink hover:border-[#D4A574]'}`}>
+                      {d}
+                    </button>
+                  ))}
                 </div>
-                <div className="text-sm mt-1" style={{ color: "#6B7268" }}>
-                  kcal/day · {computedMacros.workout_day_kcal.toLocaleString()} on workout days
+                <Textarea placeholder="Anything else? e.g. Karela, arbi, no maida..." value={form.dislikes_notes}
+                  onChange={e => set('dislikes_notes', e.target.value)} className="min-h-[80px]" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === 8 && (
+          <div>
+            <h2 className="font-display text-2xl font-bold text-ink mb-1">Budget and cooking</h2>
+            <p className="text-[#6B7268] mb-6">Your plan stays realistic for your lifestyle.</p>
+            <div className="space-y-6">
+              <div>
+                <Label className="mb-3 block">Weekly grocery budget: <strong>Rs {form.budget_weekly}</strong></Label>
+                <Slider min={500} max={10000} step={100} value={[form.budget_weekly]} onValueChange={([v]) => set('budget_weekly', v)} />
+                <div className="flex justify-between text-xs text-[#6B7268] mt-1"><span>Rs 500</span><span>Rs 10,000</span></div>
+              </div>
+              <div>
+                <Label className="mb-3 block">How do you handle meals on weekdays?</Label>
+                <div className="space-y-2">
+                  {([
+                    { val: 'under_15', label: 'Zero cooking', sub: 'Ready-to-eat or 5 min max' },
+                    { val: '15_30', label: 'Quick cooking', sub: '15 min, simple stuff' },
+                    { val: '30_45', label: 'I can cook', sub: '30 min meals are fine' },
+                    { val: '45_plus', label: 'I enjoy cooking', sub: 'Happy to spend 45+ min' },
+                  ] as { val: CookingTime; label: string; sub: string }[]).map(o => (
+                    <button key={o.val} onClick={() => set('max_cooking_time', o.val)}
+                      className={`w-full p-3.5 rounded-xl border-2 text-left transition-all ${form.max_cooking_time === o.val ? 'border-[#2D4A3E] bg-[#2D4A3E]/5' : 'border-[#E8E4DC] bg-white hover:border-[#2D4A3E]/30'}`}>
+                      <span className="font-medium text-sm text-ink">{o.label}</span>
+                      <span className="text-xs text-[#6B7268] ml-2">-- {o.sub}</span>
+                    </button>
+                  ))}
                 </div>
+              </div>
+              <div className="flex items-center justify-between bg-white rounded-xl p-4 border border-[#E8E4DC]">
+                <div>
+                  <div className="font-medium text-sm text-ink">Meal prep on weekends?</div>
+                  <div className="text-xs text-[#6B7268]">Batch cooking on Saturday/Sunday</div>
+                </div>
+                <Switch checked={form.meal_preps} onCheckedChange={v => set('meal_preps', v)} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === 9 && (
+          <div>
+            <h2 className="font-display text-2xl font-bold text-ink mb-1">Schedule and contact</h2>
+            <p className="text-[#6B7268] mb-6">We will send reminders at the right time for you.</p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="mb-2 block">Wake up time</Label>
+                  <Input type="time" value={form.wake_time} onChange={e => set('wake_time', e.target.value)} />
+                </div>
+                <div>
+                  <Label className="mb-2 block">Sleep time</Label>
+                  <Input type="time" value={form.sleep_time} onChange={e => set('sleep_time', e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <Label className="mb-2 block">Your name *</Label>
+                <Input placeholder="Sagar" value={form.name} onChange={e => set('name', e.target.value)} />
+              </div>
+              <div>
+                <Label className="mb-2 block">Phone number *</Label>
+                <div className="flex gap-2">
+                  <div className="flex items-center px-3 bg-white border border-[#D8D4CC] rounded-xl text-sm text-[#6B7268] shrink-0">+91</div>
+                  <Input placeholder="9876543210" value={form.phone_number}
+                    onChange={e => set('phone_number', e.target.value.replace(/\D/g, ''))} maxLength={10} className="flex-1" />
+                </div>
+                <p className="text-xs text-[#6B7268] mt-1">Used to connect your Telegram account. Never shared.</p>
+              </div>
+              <div>
+                <Label className="mb-2 block">Telegram username (optional)</Label>
+                <Input placeholder="@username" value={form.telegram_username} onChange={e => set('telegram_username', e.target.value)} />
+                <p className="text-xs text-[#6B7268] mt-1">Find yours in Telegram Settings. We will find you by phone number if you do not have one.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === 10 && macros && (
+          <div>
+            <h2 className="font-display text-2xl font-bold text-ink mb-1">Your targets, locked in.</h2>
+            <p className="text-[#6B7268] mb-6">Based on your profile. Click below to generate your 7-day meal plan.</p>
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl p-5 border border-[#E8E4DC]">
+                <div className="text-sm text-[#6B7268] mb-1">BMI</div>
+                <div className="flex items-baseline gap-2">
+                  <span className="font-display text-3xl font-bold" style={{ color: bmiInfo?.color }}>{macros.bmi}</span>
+                  <span className="font-medium" style={{ color: bmiInfo?.color }}>{bmiInfo?.label}</span>
+                </div>
+              </div>
+              <div className="bg-[#2D4A3E] text-white rounded-2xl p-5">
+                <div className="text-sm text-white/70 mb-1">Daily calories</div>
+                <div className="font-display text-4xl font-bold">{macros.target_kcal} kcal</div>
+                <div className="text-sm text-white/70 mt-1">Workout days: {macros.workout_day_kcal} kcal</div>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  { label: "Protein", value: computedMacros.target_protein_g, color: "#E89B7C" },
-                  { label: "Carbs", value: computedMacros.target_carbs_g, color: "#D4A574" },
-                  { label: "Fat", value: computedMacros.target_fat_g, color: "#7BA088" },
+                  { label: 'Protein', val: macros.target_protein_g },
+                  { label: 'Carbs', val: macros.target_carbs_g },
+                  { label: 'Fat', val: macros.target_fat_g },
                 ].map(m => (
-                  <div key={m.label} className="rounded-xl p-3 text-center" style={{ backgroundColor: "#FAF8F3" }}>
-                    <div className="text-2xl font-bold" style={{ color: m.color }}>{m.value}<span className="text-sm">g</span></div>
-                    <div className="text-xs mt-0.5" style={{ color: "#6B7268" }}>{m.label}</div>
+                  <div key={m.label} className="bg-white rounded-xl p-4 border border-[#E8E4DC] text-center">
+                    <div className="text-xs text-[#6B7268] mb-1">{m.label}</div>
+                    <div className="font-display text-xl font-bold text-ink">{m.val}g</div>
                   </div>
                 ))}
               </div>
             </div>
-
-            {submitError && (
-              <div className="p-4 rounded-xl text-sm" style={{ backgroundColor: "rgba(198,107,92,0.1)", color: "#C66B5C" }}>
-                {submitError}
-              </div>
-            )}
-
-            <button onClick={handleSubmit} disabled={submitting}
-              className="w-full py-4 rounded-2xl font-semibold text-white transition-colors"
-              style={{ backgroundColor: submitting ? "#5A7A6B" : "#2D4A3E" }}>
-              {submitting ? "Saving & generating your plan..." : "Save & generate my plan →"}
-            </button>
+            {error && <p className="text-[#C66B5C] text-sm mt-4">{error}</p>}
           </div>
         )}
 
-        {/* ── Step 11: Success dashboard (after save) ── */}
-        {step === 11 && computedMacros && saved && (() => {
-          const deficit = computedMacros.tdee - computedMacros.target_kcal;
-          const weeklyLossKg = Math.min(deficit > 0 ? (deficit * 7) / 7700 : 0, 1.0);
-          const weeksToGoal = weeklyLossKg > 0 ? Math.ceil(profile.target_kg / weeklyLossKg) : profile.target_weeks;
-          const projectedDate = new Date();
-          projectedDate.setDate(projectedDate.getDate() + weeksToGoal * 7);
-          const projectedLabel = projectedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-
-          const milestones = [
-            { label: '4 weeks', kg: +(profile.weight_kg - weeklyLossKg * 4).toFixed(1) },
-            { label: '8 weeks', kg: +(profile.weight_kg - weeklyLossKg * 8).toFixed(1) },
-            { label: `${weeksToGoal} weeks`, kg: +(profile.weight_kg - profile.target_kg).toFixed(1) },
-          ];
-
-          const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-          const SLOT_LABELS: Record<string, string> = {
-            early_morning: '🌅 Early morning',
-            breakfast: '🍳 Breakfast',
-            mid_morning: '🥛 Mid-morning',
-            lunch: '🍱 Lunch',
-            evening_snack: '🥜 Evening snack',
-            dinner: '🍽️ Dinner',
-            pre_bed: '🌙 Pre-bed',
-          };
-
-          type Slot = { slot: string; time?: string; meal: string; kcal: number; protein_g: number; carbs_g?: number; fat_g?: number; prep_time_min?: number };
-          type Day = { day_index: number; day_name: string; is_workout_day?: boolean; total_kcal?: number; slots: Slot[] };
-
-          const activeDayData = weekPlan
-            ? (weekPlan[activeDay] as Day | undefined)
-            : null;
-
-          async function saveSlotEdit(dayIndex: number, slotName: string, newMeal: string) {
-            if (!savedUserId) return;
-            await fetch('/api/plan/edit', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: savedUserId, dayIndex, slotName, meal: newMeal }),
-            });
-            // Refresh plan
-            const planRes = await fetch(`/api/plan?uid=${savedUserId}`);
-            const planData = await planRes.json();
-            if (planData.days?.length) setWeekPlan(planData.days as Record<string, unknown>[]);
-            setEditingSlot(null);
-            setEditText('');
-          }
-
-          return (
-            <div className="space-y-4">
-              {/* Header */}
-              <div className="rounded-2xl p-8 text-center" style={{ backgroundColor: "#2D4A3E", color: "#FFFFFF" }}>
-                <div className="text-5xl mb-3">🔒</div>
-                <div className="text-3xl font-bold mb-2" style={{ fontFamily: "Fraunces, Georgia, serif" }}>
-                  You&apos;re locked in!
-                </div>
-                <p className="text-sm" style={{ color: "#7BA088" }}>
-                  Profile saved. Your personalised 7-day plan is below.
-                </p>
-              </div>
-
-              {/* Goal projection */}
-              {profile.goal === 'fat_loss' && weeklyLossKg > 0 && (
-                <div className="rounded-2xl p-6" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
-                  <div className="text-sm font-bold uppercase tracking-widest mb-4" style={{ color: "#5A7A6B" }}>Your goal projection</div>
-                  <div className="flex items-baseline gap-2 mb-1">
-                    <span className="text-3xl font-bold" style={{ color: "#2D4A3E", fontFamily: "Fraunces, Georgia, serif" }}>
-                      -{profile.target_kg} kg
-                    </span>
-                    <span className="text-sm" style={{ color: "#6B7268" }}>by {projectedLabel}</span>
-                  </div>
-                  <p className="text-xs mb-5" style={{ color: "#6B7268" }}>
-                    At {weeklyLossKg.toFixed(2)} kg/week — {deficit} kcal/day deficit
-                  </p>
-                  <div className="space-y-3">
-                    {milestones.map((m, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <div className="w-20 text-xs font-medium" style={{ color: "#6B7268" }}>{m.label}</div>
-                        <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ backgroundColor: "#F0EDE6" }}>
-                          <div className="h-full rounded-full" style={{
-                            backgroundColor: "#2D4A3E",
-                            width: `${Math.min(((i + 1) / milestones.length) * 100, 100)}%`,
-                            opacity: 0.4 + (i * 0.2),
-                          }} />
-                        </div>
-                        <div className="w-16 text-xs font-bold text-right" style={{ color: "#2D4A3E" }}>{m.kg} kg</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {profile.goal === 'muscle_gain' && (
-                <div className="rounded-2xl p-6" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
-                  <div className="text-sm font-bold uppercase tracking-widest mb-3" style={{ color: "#5A7A6B" }}>Your goal projection</div>
-                  <div className="space-y-3">
-                    {[
-                      { label: '4 weeks', muscle: '+0.8 kg lean mass', note: 'Strength noticeably up' },
-                      { label: '8 weeks', muscle: '+1.6 kg lean mass', note: 'Visible muscle definition' },
-                      { label: '12 weeks', muscle: '+2.5 kg lean mass', note: 'Significant body recomposition' },
-                    ].map((m, i) => (
-                      <div key={i} className="flex justify-between items-center p-3 rounded-xl" style={{ backgroundColor: "#FAF8F3" }}>
-                        <span className="text-sm font-medium" style={{ color: "#6B7268" }}>{m.label}</span>
-                        <div className="text-right">
-                          <div className="text-sm font-bold" style={{ color: "#2D4A3E" }}>{m.muscle}</div>
-                          <div className="text-xs" style={{ color: "#6B7268" }}>{m.note}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Daily targets */}
-              <div className="rounded-2xl p-6" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
-                <div className="text-sm font-bold uppercase tracking-widest mb-4" style={{ color: "#5A7A6B" }}>Daily targets</div>
-                <div className="rounded-xl p-4 text-center mb-4" style={{ backgroundColor: "rgba(45,74,62,0.06)" }}>
-                  <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: "#5A7A6B" }}>Calories</div>
-                  <div className="text-4xl font-bold" style={{ color: "#2D4A3E", fontFamily: "Fraunces, Georgia, serif" }}>
-                    {computedMacros.target_kcal.toLocaleString()}
-                  </div>
-                  <div className="text-xs mt-1" style={{ color: "#6B7268" }}>{computedMacros.workout_day_kcal.toLocaleString()} on workout days</div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { label: "Protein", value: computedMacros.target_protein_g, color: "#E89B7C" },
-                    { label: "Carbs", value: computedMacros.target_carbs_g, color: "#D4A574" },
-                    { label: "Fat", value: computedMacros.target_fat_g, color: "#7BA088" },
-                  ].map(m => (
-                    <div key={m.label} className="rounded-xl p-3 text-center" style={{ backgroundColor: "#FAF8F3" }}>
-                      <div className="text-2xl font-bold" style={{ color: m.color }}>{m.value}<span className="text-sm">g</span></div>
-                      <div className="text-xs mt-0.5" style={{ color: "#6B7268" }}>{m.label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── 7-Day Meal Plan ── */}
-              <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 12px rgba(45,74,62,0.06)" }}>
-                <div className="px-6 pt-6 pb-3">
-                  <div className="text-sm font-bold uppercase tracking-widest mb-4" style={{ color: "#5A7A6B" }}>Your 7-Day Meal Plan</div>
-
-                  {/* Day tabs */}
-                  <div className="flex gap-1 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
-                    {DAY_LABELS.map((d, i) => {
-                      const dayData = weekPlan?.[i] as Day | undefined;
-                      const isWorkout = dayData?.is_workout_day || profile.workout_days.includes(['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][i]);
-                      return (
-                        <button key={d} type="button"
-                          onClick={() => setActiveDay(i)}
-                          className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold transition-all"
-                          style={{
-                            backgroundColor: activeDay === i ? "#2D4A3E" : "#FAF8F3",
-                            color: activeDay === i ? "#FFFFFF" : "#6B7268",
-                            minWidth: '42px',
-                          }}>
-                          {d}
-                          {isWorkout && <div className="text-xs" style={{ opacity: 0.7 }}>💪</div>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="px-6 pb-6">
-                  {planLoading && (
-                    <div className="py-12 text-center" style={{ color: "#6B7268" }}>
-                      <div className="text-2xl mb-2">⏳</div>
-                      <p className="text-sm">Generating your personalised plan...</p>
-                      <p className="text-xs mt-1">This takes about 30 seconds</p>
-                    </div>
-                  )}
-
-                  {!planLoading && !weekPlan && (
-                    <div className="py-8 text-center" style={{ color: "#6B7268" }}>
-                      <div className="text-2xl mb-2">🔔</div>
-                      <p className="text-sm">Plan is being generated.</p>
-                      <p className="text-xs mt-1">You&apos;ll get a Telegram notification when it&apos;s ready.</p>
-                    </div>
-                  )}
-
-                  {!planLoading && weekPlan && activeDayData && (
-                    <div className="space-y-3 mt-2">
-                      {activeDayData.is_workout_day && (
-                        <div className="text-xs px-3 py-2 rounded-lg font-medium" style={{ backgroundColor: "rgba(123,160,136,0.15)", color: "#2D4A3E" }}>
-                          💪 Workout day — {activeDayData.total_kcal?.toLocaleString() || computedMacros.workout_day_kcal.toLocaleString()} kcal
-                        </div>
-                      )}
-                      {activeDayData.slots?.map((slot: Slot) => {
-                        const isEditing = editingSlot?.dayIndex === activeDay && editingSlot?.slotName === slot.slot;
-                        return (
-                          <div key={slot.slot} className="rounded-xl p-4" style={{ backgroundColor: "#FAF8F3" }}>
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <div>
-                                <div className="text-xs font-semibold mb-0.5" style={{ color: "#5A7A6B" }}>
-                                  {SLOT_LABELS[slot.slot] || slot.slot}
-                                  {slot.time && <span className="ml-2 font-normal" style={{ color: "#9BA89A" }}>{slot.time}</span>}
-                                </div>
-                                {!isEditing && (
-                                  <div className="text-sm font-medium" style={{ color: "#1A1F1B" }}>{slot.meal}</div>
-                                )}
-                              </div>
-                              {!isEditing && (
-                                <button type="button"
-                                  onClick={() => { setEditingSlot({ dayIndex: activeDay, slotName: slot.slot }); setEditText(slot.meal); }}
-                                  className="flex-shrink-0 text-xs px-2 py-1 rounded-lg border transition-all"
-                                  style={{ borderColor: "#E8E4DC", color: "#6B7268" }}>
-                                  Edit
-                                </button>
-                              )}
-                            </div>
-
-                            {isEditing && (
-                              <div className="mt-1">
-                                <textarea rows={2} value={editText} onChange={e => setEditText(e.target.value)}
-                                  className="w-full border rounded-xl px-3 py-2 text-sm outline-none resize-none mb-2"
-                                  style={{ borderColor: "#2D4A3E" }} />
-                                <div className="flex gap-2">
-                                  <button type="button"
-                                    onClick={() => saveSlotEdit(activeDay, slot.slot, editText)}
-                                    className="flex-1 py-2 rounded-xl text-xs font-semibold text-white"
-                                    style={{ backgroundColor: "#2D4A3E" }}>
-                                    Save
-                                  </button>
-                                  <button type="button"
-                                    onClick={() => { setEditingSlot(null); setEditText(''); }}
-                                    className="flex-1 py-2 rounded-xl text-xs font-medium border"
-                                    style={{ borderColor: "#E8E4DC", color: "#6B7268" }}>
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-
-                            {!isEditing && (
-                              <div className="flex gap-3 mt-2 text-xs" style={{ color: "#9BA89A" }}>
-                                <span>{slot.kcal} kcal</span>
-                                <span>·</span>
-                                <span>{slot.protein_g}g protein</span>
-                                {slot.prep_time_min != null && slot.prep_time_min > 0 && (
-                                  <><span>·</span><span>{slot.prep_time_min} min prep</span></>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* CTA */}
-              <div className="rounded-2xl p-6 space-y-3" style={{ backgroundColor: "#FAF8F3" }}>
-                <p className="text-sm font-medium" style={{ color: "#1A1F1B" }}>
-                  Connect Telegram to get meal reminders
-                </p>
-                <p className="text-xs" style={{ color: "#6B7268" }}>
-                  Tap the button below — it opens the bot and links your account automatically.
-                </p>
-                <a href={`https://t.me/kanshi_bot?start=${savedUserId || ''}`}
-                  target="_blank" rel="noreferrer"
-                  className="inline-block w-full py-4 rounded-2xl font-semibold text-white text-center"
-                  style={{ backgroundColor: "#2D4A3E" }}>
-                  Connect Telegram bot →
-                </a>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Navigation */}
-        {step < TOTAL_STEPS && (
-          <div className="mt-6 flex gap-3">
-            {step > 1 && (
-              <button type="button" onClick={() => setStep(s => s - 1)}
-                className="flex-1 py-4 rounded-2xl font-medium border transition-colors"
-                style={{ borderColor: "#E8E4DC", color: "#6B7268" }}>
-                ← Back
-              </button>
-            )}
-            <button type="button" onClick={handleNext} disabled={!canAdvance()}
-              className="flex-1 py-4 rounded-2xl font-semibold text-white transition-colors"
-              style={{ backgroundColor: canAdvance() ? "#2D4A3E" : "#B0BDB8" }}>
-              {step === TOTAL_STEPS - 1 ? "Calculate my targets →" : step === 10 ? "Continue (optional) →" : "Continue →"}
-            </button>
+        {step === 10 && !macros && (
+          <div>
+            <p className="text-[#6B7268]">Please go back and fill in your body stats (step 3) and activity level (step 4) to see your targets.</p>
           </div>
         )}
+
+        <div className="mt-8 flex gap-3">
+          {step < TOTAL_STEPS ? (
+            <Button onClick={() => setStep(s => s + 1)} disabled={!canProceed()} className="flex-1 bg-[#2D4A3E] hover:bg-[#243d32]">
+              Continue <ArrowRight className="w-4 h-4 ml-1" />
+            </Button>
+          ) : (
+            <Button onClick={handleSubmit} disabled={loading || !macros} className="flex-1 bg-[#E89B7C] hover:bg-[#d9845f]">
+              {loading ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating your plan...</>
+              ) : (
+                <>Generate my meal plan <Check className="w-4 h-4 ml-1" /></>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
-  );
-}
-
-export default function OnboardingPage() {
-  return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#FAF8F3" }}>
-        <div style={{ color: "#2D4A3E" }}>Loading...</div>
-      </div>
-    }>
-      <OnboardingContent />
-    </Suspense>
-  );
+  )
 }

@@ -20,8 +20,8 @@
   --background: var(--cream);
   --foreground: var(--ink);
 
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-display: 'Fraunces', Georgia, serif;
+  --font-sans: var(--font-sans, 'Inter', system-ui, sans-serif);
+  --font-display: var(--font-display, 'Fraunces', Georgia, serif);
 }
 
 @theme inline {
@@ -51,13 +51,13 @@ html {
 body {
   background: var(--cream);
   color: var(--ink);
-  font-family: var(--font-sans);
+  font-family: var(--font-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-h1, h2, h3, h4 {
-  font-family: var(--font-display);
+.font-display {
+  font-family: var(--font-display), Georgia, serif;
 }
 
 /* Macro progress bars */

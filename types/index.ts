@@ -1,14 +1,22 @@
-// ============================================================
-// LOCKIN.FOOD — TypeScript Interfaces
-// ============================================================
-
-export type Goal = 'fat_loss' | 'muscle_gain' | 'clean_eating' | 'manage_condition';
-export type Sex = 'male' | 'female' | 'other';
-export type ActivityLevel = 'sedentary' | 'light' | 'active' | 'very_active';
-export type Region = 'north' | 'south' | 'east' | 'west' | 'other';
-export type CookingTime = 'under_15' | '15_30' | '30_45' | '45_plus';
-export type PantryStatus = 'fresh' | 'low' | 'expired' | 'out';
-export type MealSlot = 'early_morning' | 'breakfast' | 'mid_morning' | 'lunch' | 'evening_snack' | 'dinner' | 'pre_bed';
+export type Goal = 'fat_loss' | 'muscle_gain' | 'clean_eating' | 'manage_condition'
+export type Sex = 'male' | 'female' | 'other'
+export type ActivityLevel = 'sedentary' | 'light' | 'active' | 'very_active'
+export type Region = 'north' | 'south' | 'east' | 'west' | 'other'
+export type CookingTime = 'under_15' | '15_30' | '30_45' | '45_plus'
+export type PantryStatus = 'fresh' | 'low' | 'expired' | 'out'
+export type MealSlotKey = 'early_morning' | 'breakfast' | 'mid_morning' | 'lunch' | 'evening_snack' | 'dinner' | 'pre_bed'
+export type MessageType =
+  | 'wake_check'
+  | 'pre_breakfast'
+  | 'post_breakfast'
+  | 'pre_lunch'
+  | 'post_lunch'
+  | 'pre_dinner'
+  | 'post_dinner'
+  | 'workout_reminder'
+  | 'hydration_1'
+  | 'hydration_2'
+  | 'end_of_day'
 
 // ============================================================
 // USER
@@ -180,7 +188,7 @@ export interface MealPlan {
 // DAILY LOG
 // ============================================================
 export interface MealLogged {
-  slot: MealSlot;
+  slot: MealSlotKey;
   name: string;
   kcal: number;
   protein_g: number;
@@ -194,7 +202,7 @@ export interface DailyLog {
   user_id: string;
   log_date: string;
   meals_eaten: MealLogged[];
-  meals_skipped: MealSlot[];
+  meals_skipped: MealSlotKey[];
   total_kcal: number;
   total_protein_g: number;
   total_carbs_g: number;

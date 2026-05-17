@@ -1,211 +1,150 @@
-"use client";
+'use client'
 
-import { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { Badge } from '@/components/ui/badge'
+import { ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react'
 
-interface SlotItem {
-  time: string;
-  name: string;
-  kcal?: number;
-  protein_g?: number;
-  plate_totals?: { kcal: number; protein_g: number; carbs_g: number; fat_g: number };
-  components?: { role: string; name: string; kcal: number; protein_g: number }[];
-  why_this_plate?: string;
+const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const SLOT_LABELS: Record<string, string> = {
+  early_morning: 'Early Morning',
+  breakfast: 'Breakfast',
+  mid_morning: 'Mid-Morning',
+  lunch: 'Lunch',
+  evening_snack: 'Evening Snack',
+  dinner: 'Dinner',
+  pre_bed: 'Pre-Bed',
 }
 
 interface DayPlan {
-  day: string;
-  is_workout_day: boolean;
-  target_kcal: number;
-  slots: Record<string, SlotItem>;
-  day_totals: { kcal: number; protein_g: number; carbs_g: number; fat_g: number };
+  day_index?: number
+  day_name?: string
+  is_workout_day?: boolean
+  total_kcal?: number
+  slots: Array<{
+    slot: string
+    time: string
+    meal: string
+    kcal: number
+    protein_g: number
+    carbs_g: number
+    fat_g: number
+    ingredients?: string[]
+  }>
 }
 
-const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-const SLOT_LABELS: Record<string, { emoji: string; label: string }> = {
-  early_morning: { emoji: "🌅", label: "Early Morning" },
-  breakfast: { emoji: "🍳", label: "Breakfast" },
-  mid_morning: { emoji: "🍎", label: "Mid-Morning" },
-  lunch: { emoji: "🍱", label: "Lunch" },
-  evening_snack: { emoji: "☕", label: "Snack" },
-  dinner: { emoji: "🌙", label: "Dinner" },
-  pre_bed: { emoji: "🌛", label: "Pre-Bed" },
-};
-
-function PlanContent() {
-  const searchParams = useSearchParams();
-  const uid = searchParams.get("uid");
-  const [days, setDays] = useState<DayPlan[]>([]);
-  const [loading, setLoading] = useState(true);
-  const todayIndex = new Date().getDay();
-  const [activeDay, setActiveDay] = useState(todayIndex);
-  const [expandedSlot, setExpandedSlot] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!uid) { setLoading(false); return; }
-    fetch(`/api/plan?uid=${uid}`)
-      .then((r) => r.json())
-      .then((d) => setDays(d.days || []))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [uid]);
-
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#FAF8F3" }}>
-      <div style={{ color: "#2D4A3E", fontFamily: "Fraunces, Georgia, serif", fontSize: 20 }}>Loading your plan...</div>
-    </div>
-  );
-
-  const currentDay = days[activeDay];
-
+function MealCard({ slot }: { slot: DayPlan['slots'][number] }) {
+  const [expanded, setExpanded] = useState(false)
   return (
-    <div className="min-h-screen pb-20" style={{ backgroundColor: "#FAF8F3" }}>
-      {/* Header */}
-      <div className="px-5 pt-8 pb-4">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold" style={{ fontFamily: "Fraunces, Georgia, serif", color: "#1A1F1B" }}>
-            This week&apos;s plan
-          </h1>
-          {uid && (
-            <Link href={`/dashboard?uid=${uid}`} className="text-sm" style={{ color: "#2D4A3E" }}>← Dashboard</Link>
-          )}
+    <div className="bg-white rounded-xl border border-[#E8E4DC] overflow-hidden">
+      <button className="w-full p-4 text-left flex items-start gap-3" onClick={() => setExpanded(e => !e)}>
+        <div className="w-2 h-2 rounded-full bg-[#5A7A6B] mt-2 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-[#6B7268] mb-0.5">{slot.time} · {SLOT_LABELS[slot.slot] || slot.slot}</div>
+          <p className="text-sm font-medium text-ink leading-snug">{slot.meal}</p>
+          <p className="text-xs text-[#6B7268] mt-1">{slot.kcal} kcal · {slot.protein_g}g protein</p>
         </div>
-
-        {/* Day tabs */}
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          {DAYS.map((d, i) => {
-            const dayData = days[i];
-            return (
-              <button
-                key={d}
-                type="button"
-                onClick={() => setActiveDay(i)}
-                className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-semibold transition-all"
-                style={{
-                  backgroundColor: activeDay === i ? "#2D4A3E" : "#FFFFFF",
-                  color: activeDay === i ? "#FFFFFF" : "#1A1F1B",
-                  boxShadow: activeDay === i ? "none" : "0 1px 4px rgba(45,74,62,0.08)",
-                }}
-              >
-                <div>{d.slice(0, 3).toUpperCase()}</div>
-                {i === todayIndex && <div style={{ fontSize: 9, color: activeDay === i ? "#7BA088" : "#2D4A3E" }}>TODAY</div>}
-                {dayData?.is_workout_day && <div style={{ fontSize: 9, color: activeDay === i ? "#E89B7C" : "#E89B7C" }}>💪</div>}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {currentDay ? (
-        <div className="px-5 space-y-3">
-          {/* Day summary */}
-          <div className="rounded-2xl p-4 flex justify-between items-center" style={{ backgroundColor: currentDay.is_workout_day ? "rgba(232,155,124,0.12)" : "#FFFFFF", boxShadow: "0 2px 8px rgba(45,74,62,0.05)" }}>
-            <div>
-              <div className="font-semibold capitalize" style={{ color: "#1A1F1B" }}>
-                {currentDay.day} {currentDay.is_workout_day && "💪"}
-              </div>
-              <div className="text-xs mt-0.5" style={{ color: "#6B7268" }}>
-                Target: {currentDay.target_kcal.toLocaleString()} kcal
-              </div>
-            </div>
-            <div className="text-right text-sm">
-              <div className="font-bold" style={{ color: "#2D4A3E" }}>{currentDay.day_totals.protein_g}g</div>
-              <div className="text-xs" style={{ color: "#6B7268" }}>protein</div>
-            </div>
+        {slot.ingredients && slot.ingredients.length > 0 && (
+          expanded ? <ChevronUp className="w-4 h-4 text-[#6B7268] shrink-0 mt-1" /> : <ChevronDown className="w-4 h-4 text-[#6B7268] shrink-0 mt-1" />
+        )}
+      </button>
+      {expanded && slot.ingredients && (
+        <div className="px-4 pb-4 pt-0 border-t border-[#E8E4DC]">
+          <div className="text-xs font-medium text-[#6B7268] mb-2 mt-3">Ingredients</div>
+          <div className="flex flex-wrap gap-1.5">
+            {slot.ingredients.map((ing, i) => (
+              <span key={i} className="text-xs bg-[#F0EDE6] text-[#6B7268] px-2 py-0.5 rounded-full">{ing}</span>
+            ))}
           </div>
-
-          {/* Slots */}
-          {Object.entries(SLOT_LABELS).map(([slot, info]) => {
-            const item = currentDay.slots?.[slot];
-            if (!item) return null;
-            const kcal = item.plate_totals?.kcal ?? item.kcal ?? 0;
-            const protein = item.plate_totals?.protein_g ?? item.protein_g ?? 0;
-            const isComposed = !!item.components;
-            const isOpen = expandedSlot === `${activeDay}-${slot}`;
-
-            return (
-              <div key={slot} className="rounded-2xl overflow-hidden" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 8px rgba(45,74,62,0.05)" }}>
-                <button
-                  type="button"
-                  className="w-full text-left px-4 py-4 flex items-start gap-3"
-                  onClick={() => setExpandedSlot(isOpen ? null : `${activeDay}-${slot}`)}
-                >
-                  <span className="text-xl pt-0.5">{info.emoji}</span>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="text-xs font-bold uppercase tracking-wide" style={{ color: "#5A7A6B" }}>{info.label}</div>
-                        <div className="font-semibold mt-0.5" style={{ color: "#1A1F1B" }}>{item.name}</div>
-                        <div className="text-xs mt-0.5" style={{ color: "#6B7268" }}>{item.time}</div>
-                      </div>
-                      <div className="text-right ml-3">
-                        <div className="text-sm font-bold" style={{ color: "#1A1F1B" }}>{kcal} kcal</div>
-                        <div className="text-xs" style={{ color: "#E89B7C" }}>{protein}g P</div>
-                      </div>
-                    </div>
-                  </div>
-                  <span style={{ color: "#6B7268", marginTop: 4 }}>{isOpen ? "▲" : "▼"}</span>
-                </button>
-
-                {/* Expanded view */}
-                {isOpen && (
-                  <div className="px-4 pb-4 border-t" style={{ borderColor: "#F0EDE6" }}>
-                    {isComposed && item.components && (
-                      <div className="mt-3 space-y-2">
-                        <div className="text-xs font-bold uppercase tracking-wide" style={{ color: "#6B7268" }}>Components</div>
-                        {item.components.map((c, i) => (
-                          <div key={i} className="flex justify-between text-sm">
-                            <span style={{ color: "#1A1F1B" }}>{c.name} <span className="text-xs capitalize" style={{ color: "#6B7268" }}>({c.role.replace("_", " ")})</span></span>
-                            <span style={{ color: "#6B7268" }}>{c.kcal} kcal · {c.protein_g}g P</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {item.why_this_plate && (
-                      <div className="mt-3 text-xs p-3 rounded-lg" style={{ backgroundColor: "#FAF8F3", color: "#6B7268" }}>
-                        💡 {item.why_this_plate}
-                      </div>
-                    )}
-                    {isComposed && (
-                      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                        {[
-                          { label: "Protein", value: item.plate_totals?.protein_g ?? 0, color: "#E89B7C" },
-                          { label: "Carbs", value: item.plate_totals?.carbs_g ?? 0, color: "#D4A574" },
-                          { label: "Fat", value: item.plate_totals?.fat_g ?? 0, color: "#7BA088" },
-                        ].map((m) => (
-                          <div key={m.label} className="rounded-lg p-2" style={{ backgroundColor: "#FAF8F3" }}>
-                            <div className="font-bold" style={{ color: m.color }}>{m.value}g</div>
-                            <div style={{ color: "#6B7268" }}>{m.label}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            {[['Protein', slot.protein_g, 'g'], ['Carbs', slot.carbs_g, 'g'], ['Fat', slot.fat_g, 'g']].map(([l, v, u]) => (
+              <div key={String(l)} className="bg-[#F5F3EE] rounded-lg p-2">
+                <div className="text-xs text-[#6B7268]">{l}</div>
+                <div className="font-medium text-ink text-sm">{v}{u}</div>
               </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="px-5 text-center py-16">
-          <div className="text-4xl mb-4">📅</div>
-          <p className="mb-2 font-semibold" style={{ color: "#1A1F1B" }}>No plan generated yet</p>
-          <p className="text-sm" style={{ color: "#6B7268" }}>Open Telegram and send /plan to get your week&apos;s meals.</p>
+            ))}
+          </div>
         </div>
       )}
     </div>
-  );
+  )
+}
+
+function PlanContent() {
+  const params = useSearchParams()
+  const uid = params.get('uid')
+  const [days, setDays] = useState<DayPlan[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeDay, setActiveDay] = useState(String(new Date().getDay()))
+
+  useEffect(() => {
+    if (!uid) return
+    fetch(`/api/plan?uid=${uid}`)
+      .then(r => r.json())
+      .then(d => setDays(d.days || []))
+      .finally(() => setLoading(false))
+  }, [uid])
+
+  if (!uid) return <div className="p-5 text-[#6B7268]">No user ID.</div>
+  if (loading) return (
+    <div className="min-h-screen bg-cream flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-[#2D4A3E] border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen bg-cream">
+      <nav className="sticky top-0 bg-cream/95 backdrop-blur border-b border-[#E8E4DC] z-10">
+        <div className="max-w-2xl mx-auto px-5 py-4 flex items-center gap-3">
+          <Link href={`/dashboard?uid=${uid}`} className="text-[#6B7268] hover:text-ink"><ArrowLeft className="w-5 h-5" /></Link>
+          <h1 className="font-display font-semibold text-lg text-ink">7-Day Plan</h1>
+        </div>
+      </nav>
+
+      <div className="max-w-2xl mx-auto px-5 py-6">
+        {days.length === 0 ? (
+          <div className="text-center py-20">
+            <p className="text-[#6B7268] mb-4">No plan generated yet.</p>
+            <Link href={`/dashboard?uid=${uid}`} className="text-[#2D4A3E] font-medium underline">Back to dashboard</Link>
+          </div>
+        ) : (
+          <Tabs value={activeDay} onValueChange={setActiveDay}>
+            <TabsList className="w-full mb-6 overflow-x-auto flex-nowrap">
+              {days.map((day, i) => (
+                <TabsTrigger key={i} value={String(day.day_index ?? i)} className="flex-1 min-w-0 text-xs">
+                  {DAYS_SHORT[day.day_index ?? i] || `D${i + 1}`}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {days.map((day, i) => (
+              <TabsContent key={i} value={String(day.day_index ?? i)}>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="font-display font-semibold text-lg text-ink">{day.day_name || DAYS_SHORT[i]}</h2>
+                    <p className="text-sm text-[#6B7268]">{day.total_kcal} kcal target</p>
+                  </div>
+                  {day.is_workout_day && <Badge variant="sage">Workout day</Badge>}
+                </div>
+                <div className="space-y-2">
+                  {(day.slots || []).map((slot, j) => (
+                    <MealCard key={j} slot={slot} />
+                  ))}
+                </div>
+              </TabsContent>
+            ))}
+          </Tabs>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function PlanPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#FAF8F3" }}>
-        <div style={{ color: "#2D4A3E" }}>Loading...</div>
-      </div>
-    }>
+    <Suspense fallback={<div className="min-h-screen bg-cream flex items-center justify-center"><div className="w-8 h-8 border-2 border-[#2D4A3E] border-t-transparent rounded-full animate-spin" /></div>}>
       <PlanContent />
     </Suspense>
-  );
+  )
 }

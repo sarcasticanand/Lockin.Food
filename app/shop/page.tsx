@@ -1,179 +1,115 @@
-"use client";
+'use client'
 
-import { useEffect, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { ArrowLeft, RefreshCw } from 'lucide-react'
 
-interface ShoppingItem {
-  name: string;
-  qty: number;
-  unit: string;
-  category?: string;
-  in_pantry?: boolean;
-  checked: boolean;
+interface ShopItem {
+  name: string
+  qty: number
+  unit: string
+  category?: string
+  checked: boolean
+  in_pantry?: boolean
 }
 
 function ShopContent() {
-  const searchParams = useSearchParams();
-  const uid = searchParams.get("uid");
-  const [items, setItems] = useState<ShoppingItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
+  const params = useSearchParams()
+  const uid = params.get('uid')
+  const [items, setItems] = useState<ShopItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
 
   useEffect(() => {
-    if (!uid) { setLoading(false); return; }
+    if (!uid) return
     fetch(`/api/shop?uid=${uid}`)
-      .then((r) => r.json())
-      .then((d) => setItems(d.items || []))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [uid]);
+      .then(r => r.json())
+      .then(d => setItems(d.items || []))
+      .finally(() => setLoading(false))
+  }, [uid])
 
-  async function generateList() {
-    if (!uid) return;
-    setGenerating(true);
-    try {
-      const res = await fetch(`/api/shop`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: uid }),
-      });
-      const data = await res.json();
-      setItems(data.items || []);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setGenerating(false);
-    }
+  const generate = async () => {
+    if (!uid) return
+    setGenerating(true)
+    const res = await fetch('/api/shop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: uid }),
+    })
+    const data = await res.json()
+    setItems(data.items || [])
+    setGenerating(false)
   }
 
-  function toggleItem(index: number) {
-    setItems((prev) =>
-      prev.map((item, i) => i === index ? { ...item, checked: !item.checked } : item)
-    );
+  const toggle = (name: string) => {
+    setItems(prev => prev.map(i => i.name === name ? { ...i, checked: !i.checked } : i))
   }
 
-  // Group by category
-  const grouped = items.reduce<Record<string, ShoppingItem[]>>((acc, item) => {
-    const cat = item.category || "Other";
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(item);
-    return acc;
-  }, {});
-
-  const uncheckedCount = items.filter((i) => !i.checked && !i.in_pantry).length;
-
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#FAF8F3" }}>
-      <div style={{ color: "#2D4A3E" }}>Loading...</div>
-    </div>
-  );
+  const categories = [...new Set(items.map(i => i.category || 'Other'))]
+  const unchecked = items.filter(i => !i.checked)
+  const checked = items.filter(i => i.checked)
 
   return (
-    <div className="min-h-screen pb-20" style={{ backgroundColor: "#FAF8F3" }}>
-      <div className="px-5 pt-8 pb-4">
-        <div className="flex items-center justify-between mb-1">
-          <h1 className="text-2xl font-bold" style={{ fontFamily: "Fraunces, Georgia, serif", color: "#1A1F1B" }}>
-            Shopping list
-          </h1>
-          {uid && <Link href={`/dashboard?uid=${uid}`} className="text-sm" style={{ color: "#2D4A3E" }}>← Dashboard</Link>}
+    <div className="min-h-screen bg-cream">
+      <nav className="sticky top-0 bg-cream/95 backdrop-blur border-b border-[#E8E4DC] z-10">
+        <div className="max-w-2xl mx-auto px-5 py-4 flex items-center gap-3">
+          <Link href={`/dashboard?uid=${uid}`} className="text-[#6B7268] hover:text-ink"><ArrowLeft className="w-5 h-5" /></Link>
+          <h1 className="font-display font-semibold text-lg text-ink flex-1">Shopping List</h1>
+          <Button size="sm" onClick={generate} disabled={generating} variant="outline" className="gap-1.5">
+            <RefreshCw className={`w-3.5 h-3.5 ${generating ? 'animate-spin' : ''}`} />
+            {generating ? 'Generating...' : 'Regenerate'}
+          </Button>
         </div>
-        <p className="text-sm" style={{ color: "#6B7268" }}>{uncheckedCount} items to buy</p>
-      </div>
+      </nav>
 
-      <div className="px-5">
-        {items.length === 0 ? (
-          <div className="rounded-2xl p-8 text-center" style={{ backgroundColor: "#FFFFFF" }}>
-            <div className="text-4xl mb-3">🛒</div>
-            <p className="font-semibold mb-2" style={{ color: "#1A1F1B" }}>No shopping list yet</p>
-            <p className="text-sm mb-5" style={{ color: "#6B7268" }}>Generate one from your current meal plan.</p>
-            <button
-              onClick={generateList}
-              disabled={generating}
-              className="px-6 py-3 rounded-xl font-semibold text-white transition-colors"
-              style={{ backgroundColor: generating ? "#5A7A6B" : "#2D4A3E" }}
-            >
-              {generating ? "Generating..." : "Generate from plan →"}
-            </button>
+      <div className="max-w-2xl mx-auto px-5 py-6">
+        {loading ? (
+          <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-[#2D4A3E] border-t-transparent rounded-full animate-spin" /></div>
+        ) : items.length === 0 ? (
+          <div className="text-center py-20">
+            <p className="text-[#6B7268] mb-4">No shopping list yet.</p>
+            <Button onClick={generate} disabled={generating}>
+              {generating ? 'Generating...' : 'Generate from meal plan'}
+            </Button>
           </div>
         ) : (
-          <>
-            {/* Pantry items (pre-checked / greyed) */}
-            {items.some((i) => i.in_pantry) && (
-              <div className="rounded-2xl p-4 mb-3" style={{ backgroundColor: "rgba(123,160,136,0.1)" }}>
-                <div className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: "#7BA088" }}>
-                  ✓ Already in pantry ({items.filter((i) => i.in_pantry).length} items)
-                </div>
-                {items.filter((i) => i.in_pantry).map((item, i) => (
-                  <div key={i} className="flex items-center gap-3 py-1.5">
-                    <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: "#7BA088" }}>
-                      <span className="text-white text-xs flex items-center justify-center h-full">✓</span>
-                    </div>
-                    <span className="text-sm line-through" style={{ color: "#6B7268" }}>{item.name} — {item.qty} {item.unit}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Items to buy, grouped by category */}
-            {Object.entries(grouped)
-              .filter(([, items]) => items.some((i) => !i.in_pantry))
-              .map(([cat, catItems]) => (
-                <div key={cat} className="rounded-2xl p-4 mb-3" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 2px 8px rgba(45,74,62,0.05)" }}>
-                  <div className="text-xs font-bold uppercase tracking-wide mb-3" style={{ color: "#5A7A6B" }}>{cat}</div>
-                  {catItems.filter((i) => !i.in_pantry).map((item, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => toggleItem(items.indexOf(item))}
-                      className="w-full flex items-center gap-3 py-2.5 text-left"
-                    >
-                      <div
-                        className="w-5 h-5 rounded flex-shrink-0 border-2 transition-all flex items-center justify-center"
-                        style={{
-                          borderColor: item.checked ? "#2D4A3E" : "#D1D5DB",
-                          backgroundColor: item.checked ? "#2D4A3E" : "transparent",
-                        }}
-                      >
-                        {item.checked && <span className="text-white text-xs">✓</span>}
-                      </div>
-                      <div className="flex-1">
-                        <span
-                          className="text-sm font-medium"
-                          style={{ color: item.checked ? "#6B7268" : "#1A1F1B", textDecoration: item.checked ? "line-through" : "none" }}
-                        >
+          <div>
+            <p className="text-sm text-[#6B7268] mb-5">{unchecked.length} items to buy · {checked.length} already have</p>
+            {categories.map(cat => {
+              const catItems = items.filter(i => (i.category || 'Other') === cat)
+              if (catItems.length === 0) return null
+              return (
+                <div key={cat} className="mb-5">
+                  <h3 className="text-xs font-medium text-[#6B7268] uppercase tracking-wider mb-2">{cat}</h3>
+                  <div className="bg-white rounded-xl border border-[#E8E4DC] divide-y divide-[#F0EDE6]">
+                    {catItems.map(item => (
+                      <label key={item.name} className="flex items-center gap-3 p-3.5 cursor-pointer">
+                        <Checkbox checked={item.checked} onCheckedChange={() => toggle(item.name)} />
+                        <span className={`flex-1 text-sm ${item.checked ? 'line-through text-[#6B7268]' : 'text-ink'}`}>
                           {item.name}
                         </span>
-                      </div>
-                      <span className="text-xs" style={{ color: "#6B7268" }}>{item.qty} {item.unit}</span>
-                    </button>
-                  ))}
+                        <span className="text-xs text-[#6B7268] shrink-0">{item.qty} {item.unit}</span>
+                        {item.in_pantry && <span className="text-xs text-[#7BA088] shrink-0">in pantry</span>}
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              ))}
-
-            <button
-              onClick={generateList}
-              disabled={generating}
-              className="w-full py-3 rounded-xl text-sm font-medium border transition-colors"
-              style={{ borderColor: "#E8E4DC", color: "#6B7268" }}
-            >
-              {generating ? "Regenerating..." : "↻ Regenerate list"}
-            </button>
-          </>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>
-  );
+  )
 }
 
 export default function ShopPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: "#FAF8F3" }}>
-        <div style={{ color: "#2D4A3E" }}>Loading...</div>
-      </div>
-    }>
+    <Suspense fallback={<div className="min-h-screen bg-cream flex items-center justify-center"><div className="w-8 h-8 border-2 border-[#2D4A3E] border-t-transparent rounded-full animate-spin" /></div>}>
       <ShopContent />
     </Suspense>
-  );
+  )
 }

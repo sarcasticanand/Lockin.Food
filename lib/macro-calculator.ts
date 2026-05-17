@@ -76,7 +76,7 @@ export function calculateMacros(profile: {
     }
     case 'manage_condition': {
       // Diabetes: 10% caloric reduction
-      target_kcal = profile.condition === 'diabetes' ? Math.round(tdee * 0.9) : tdee;
+      target_kcal = /diabetes/i.test(profile.condition || '') ? Math.round(tdee * 0.9) : tdee;
       protein_per_kg = 1.2;
       fat_pct = 0.30;
       break;

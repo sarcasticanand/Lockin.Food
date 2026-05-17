@@ -1,29 +1,24 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-// Lazy singletons — initialized on first call, not at module evaluation time.
-// This prevents "supabaseUrl is required" errors during Next.js build.
+let _server: SupabaseClient | null = null
+let _browser: SupabaseClient | null = null
 
-let serverClient: SupabaseClient | null = null;
-let browserClient: SupabaseClient | null = null;
-
-/** Server-side client — uses service role key, bypasses RLS. API routes only. */
 export function getServerClient(): SupabaseClient {
-  if (!serverClient) {
-    const url = process.env.SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_KEY;
-    if (!url || !key) throw new Error('SUPABASE_URL / SUPABASE_SERVICE_KEY not set');
-    serverClient = createClient(url, key);
+  if (!_server) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_KEY
+    if (!url || !key) throw new Error('Supabase server env vars not set')
+    _server = createClient(url, key)
   }
-  return serverClient;
+  return _server
 }
 
-/** Browser-side client — uses anon key, respects RLS. Client components only. */
 export function getBrowserClient(): SupabaseClient {
-  if (!browserClient) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !key) throw new Error('NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY not set');
-    browserClient = createClient(url, key);
+  if (!_browser) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (!url || !key) throw new Error('Supabase browser env vars not set')
+    _browser = createClient(url, key)
   }
-  return browserClient;
+  return _browser
 }

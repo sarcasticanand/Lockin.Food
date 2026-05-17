@@ -1,4 +1,26 @@
-const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+const TELEGRAM_API = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`
+
+// Meal confirmation buttons per PRD Section 7.3
+export function mealConfirmButtons(slot: string) {
+  return [
+    [
+      { text: '✅ Yes', callback_data: `confirm:${slot}:yes` },
+      { text: '🔄 Had something else', callback_data: `confirm:${slot}:other` },
+      { text: '⏭️ Skipped', callback_data: `confirm:${slot}:skip` },
+    ],
+  ]
+}
+
+// Pantry low-stock buttons per PRD Section 7.5
+export function pantryAlertButtons(itemName: string) {
+  return [
+    [
+      { text: '📝 Add to list', callback_data: `pantry:add:${itemName}` },
+      { text: "I'll buy some", callback_data: `pantry:buy:${itemName}` },
+      { text: 'Skip', callback_data: `pantry:skip:${itemName}` },
+    ],
+  ]
+}
 
 // Split and send a message (Telegram max 4096 chars per message)
 export async function sendMessage(chatId: number, text: string): Promise<void> {
