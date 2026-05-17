@@ -8,5 +8,9 @@
       "path": "/api/cron/pantry-check",
       "schedule": "30 12 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/generate-plan/route.ts": { "maxDuration": 60 },
+    "app/api/telegram/route.ts": { "maxDuration": 60 }
+  }
 }
