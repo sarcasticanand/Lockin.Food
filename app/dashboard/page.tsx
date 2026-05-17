@@ -64,12 +64,37 @@ function DashboardContent() {
   const uid = params.get('uid')
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [generatingPlan, setGeneratingPlan] = useState(false)
+  const [planError, setPlanError] = useState('')
 
   useEffect(() => {
     if (!uid) return
     fetch(`/api/dashboard?uid=${uid}`)
       .then(r => r.json())
-      .then(setData)
+      .then(async (d) => {
+        setData(d)
+        if (!d.todaySlots) {
+          setGeneratingPlan(true)
+          try {
+            const res = await fetch('/api/generate-plan', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: uid }),
+            })
+            const result = await res.json()
+            if (!res.ok) {
+              setPlanError(result.error || 'Failed to generate plan')
+            } else {
+              const updated = await fetch(`/api/dashboard?uid=${uid}`).then(r => r.json())
+              setData(updated)
+            }
+          } catch {
+            setPlanError('Could not reach plan generation service')
+          } finally {
+            setGeneratingPlan(false)
+          }
+        }
+      })
       .finally(() => setLoading(false))
   }, [uid])
 
@@ -87,6 +112,17 @@ function DashboardContent() {
       <div className="text-center">
         <div className="w-8 h-8 border-2 border-[#2D4A3E] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
         <p className="text-[#6B7268] text-sm">Loading your plan...</p>
+      </div>
+    </div>
+  )
+
+  if (generatingPlan) return (
+    <div className="min-h-screen bg-cream flex items-center justify-center">
+      <div className="text-center px-6">
+        <div className="w-8 h-8 border-2 border-[#2D4A3E] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <p className="font-medium text-ink mb-1">Generating your 7-day meal plan...</p>
+        <p className="text-[#6B7268] text-sm">This takes about 15–30 seconds</p>
+        {planError && <p className="text-red-500 text-sm mt-3">{planError}</p>}
       </div>
     </div>
   )

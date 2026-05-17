@@ -55,20 +55,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No user ID returned' }, { status: 500 });
     }
 
-    // Trigger plan generation (awaited so we can return planReady)
-    let planReady = false;
-    try {
-      const res = await fetch(`${process.env.APP_URL}/api/generate-plan`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
-      });
-      planReady = res.ok;
-    } catch (e) {
-      console.error('[onboarding] plan gen error:', e);
-    }
-
-    return NextResponse.json({ success: true, userId, planReady });
+    return NextResponse.json({ success: true, userId, planReady: false });
   } catch (e) {
     console.error('[onboarding] error:', e);
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
