@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ArrowLeft, Plus, Trash2 } from 'lucide-react'
 import type { PantryItem, PantryStatus } from '@/types'
+import BottomNav from '@/components/BottomNav'
 
 const STATUS_COLORS: Record<PantryStatus, string> = {
   fresh: '#7BA088', low: '#D4A574', expired: '#C66B5C', out: '#6B7268',
@@ -67,9 +68,9 @@ function PantryContent() {
         </div>
       </nav>
 
-      <div className="max-w-2xl mx-auto px-5 py-6">
+      <div className="max-w-2xl mx-auto px-5 py-6 pb-safe">
         {adding && (
-          <div className="bg-white rounded-xl border border-[#2D4A3E]/30 p-4 mb-5 space-y-3">
+          <div className="bg-white rounded-[16px] shadow-[0_2px_16px_rgba(0,0,0,0.06)] p-4 mb-5 space-y-3">
             <h3 className="font-medium text-ink">Add item</h3>
             <Input placeholder="Item name *" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             <div className="flex gap-2">
@@ -106,7 +107,7 @@ function PantryContent() {
                   {cat && <h3 className="text-xs font-medium text-[#6B7268] uppercase tracking-wider mb-2 mt-4">{cat}</h3>}
                   <div className="space-y-2">
                     {catItems.map(item => (
-                      <div key={item.id} className="bg-white rounded-xl border border-[#E8E4DC] p-4 flex items-center gap-3">
+                      <div key={item.id} className="bg-white rounded-[16px] shadow-[0_2px_16px_rgba(0,0,0,0.06)] p-4 flex items-center gap-3">
                         <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLORS[item.status] }} />
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-sm text-ink">{item.name}</div>
@@ -134,6 +135,8 @@ function PantryContent() {
           </div>
         )}
       </div>
+
+      <BottomNav uid={uid} />
     </div>
   )
 }

@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { ArrowLeft, Save, Loader2 } from 'lucide-react'
 import { calculateMacros } from '@/lib/macro-calculator'
 import type { Goal, Sex, ActivityLevel } from '@/types'
+import BottomNav from '@/components/BottomNav'
 
 function ProfileContent() {
   const params = useSearchParams()
@@ -66,7 +67,7 @@ function ProfileContent() {
         </div>
       </nav>
 
-      <div className="max-w-2xl mx-auto px-5 py-6 space-y-6">
+      <div className="max-w-2xl mx-auto px-5 py-6 pb-safe space-y-6">
         <section>
           <h2 className="font-display font-semibold text-base text-ink mb-3">Basic Info</h2>
           <div className="space-y-3">
@@ -123,7 +124,7 @@ function ProfileContent() {
               { key: 'okay_with_eggs', label: 'Okay with eggs' },
               { key: 'okay_with_meat_fish', label: 'Okay with meat and fish' },
             ].map(pref => (
-              <div key={pref.key} className="flex items-center justify-between bg-white rounded-xl p-4 border border-[#E8E4DC]">
+              <div key={pref.key} className="flex items-center justify-between bg-white rounded-[16px] shadow-[0_2px_16px_rgba(0,0,0,0.06)] p-4">
                 <span className="text-sm font-medium text-ink">{pref.label}</span>
                 <Switch checked={!!user[pref.key]} onCheckedChange={v => set(pref.key, v)} />
               </div>
@@ -141,7 +142,7 @@ function ProfileContent() {
                 { label: 'Carbs', val: user.target_carbs_g as number, unit: 'g' },
                 { label: 'Fat', val: user.target_fat_g as number, unit: 'g' },
               ] as { label: string; val: number; unit: string }[]).map(t => (
-                <div key={t.label} className="bg-white rounded-xl p-4 border border-[#E8E4DC]">
+                <div key={t.label} className="bg-white rounded-[16px] shadow-[0_2px_16px_rgba(0,0,0,0.06)] p-4">
                   <div className="text-xs text-[#6B7268]">{t.label}</div>
                   <div className="font-display font-bold text-xl text-ink mt-0.5">{t.val}{t.unit}</div>
                 </div>
@@ -151,6 +152,8 @@ function ProfileContent() {
           </section>
         )}
       </div>
+
+      <BottomNav uid={uid} />
     </div>
   )
 }

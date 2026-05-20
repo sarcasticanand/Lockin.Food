@@ -6,16 +6,16 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 active:scale-95',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-semibold transition-all duration-200 disabled:pointer-events-none disabled:opacity-50 active:scale-95',
   {
     variants: {
       variant: {
-        default: 'bg-[#2D4A3E] text-white hover:bg-[#243d32] shadow-sm',
+        default: 'bg-[#1A1F1B] text-white hover:bg-[#2D4A3E] shadow-sm',
         coral: 'bg-[#E89B7C] text-white hover:bg-[#d9845f] shadow-sm',
-        outline: 'border border-[#2D4A3E] text-[#2D4A3E] bg-transparent hover:bg-[#2D4A3E]/5',
+        outline: 'border border-[#1A1F1B] text-[#1A1F1B] bg-white hover:bg-[#1A1F1B]/5',
         ghost: 'text-[#6B7268] hover:bg-[#2D4A3E]/8 hover:text-[#2D4A3E]',
         destructive: 'bg-[#C66B5C] text-white hover:bg-[#b55c4d]',
-        secondary: 'bg-[#E8E4DC] text-[#1A1F1B] hover:bg-[#ddd8ce]',
+        secondary: 'bg-white border border-[#1A1F1B] text-[#1A1F1B] hover:bg-[#1A1F1B]/5',
       },
       size: {
         default: 'h-11 px-5 py-2',

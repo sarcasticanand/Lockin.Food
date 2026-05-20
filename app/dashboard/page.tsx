@@ -3,10 +3,24 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { Progress } from '@/components/ui/progress'
+import dynamic from 'next/dynamic'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { ShoppingCart, Package, Calendar, User, MessageCircle, ChevronRight, Lock } from 'lucide-react'
+import { MessageCircle, ChevronRight, Lock } from 'lucide-react'
+import BottomNav from '@/components/BottomNav'
+
+const RadialBarChart = dynamic(
+  () => import('recharts').then(m => m.RadialBarChart),
+  { ssr: false }
+)
+const RadialBar = dynamic(
+  () => import('recharts').then(m => m.RadialBar),
+  { ssr: false }
+)
+const ResponsiveContainer = dynamic(
+  () => import('recharts').then(m => m.ResponsiveContainer),
+  { ssr: false }
+)
 
 interface DashboardData {
   user: {
@@ -45,19 +59,7 @@ const SLOT_LABELS: Record<string, string> = {
   pre_bed: 'Pre-Bed',
 }
 
-function MacroBar({ label, current, target, color }: { label: string; current: number; target: number; color: string }) {
-  const pct = target > 0 ? Math.min(Math.round((current / target) * 100), 100) : 0
-  return (
-    <div>
-      <div className="flex justify-between text-xs mb-1">
-        <span className="text-[#6B7268]">{label}</span>
-        <span className="font-medium text-ink">{current} / {target}{label === 'Calories' ? ' kcal' : 'g'}</span>
-      </div>
-      <Progress value={pct} indicatorClassName={`bg-[${color}]`} className="h-2" style={{ '--tw-bg-opacity': '1' } as React.CSSProperties} />
-      <div className="text-xs text-[#6B7268] mt-0.5 text-right">{pct}%</div>
-    </div>
-  )
-}
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 function DashboardContent() {
   const params = useSearchParams()
@@ -66,6 +68,8 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true)
   const [generatingPlan, setGeneratingPlan] = useState(false)
   const [planError, setPlanError] = useState('')
+  const todayIndex = new Date().getDay()
+  const [selectedDay, setSelectedDay] = useState(todayIndex)
 
   useEffect(() => {
     if (!uid) return
@@ -138,6 +142,12 @@ function DashboardContent() {
   const hour = now.getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
+  const kcalPct = log.kcal.target > 0 ? Math.min(Math.round((log.kcal.current / log.kcal.target) * 100), 100) : 0
+  const ringData = [
+    { value: 100, fill: '#E8E4DC' },
+    { value: kcalPct, fill: '#2D4A3E' },
+  ]
+
   return (
     <div className="min-h-screen bg-cream">
       <nav className="sticky top-0 bg-cream/95 backdrop-blur border-b border-[#E8E4DC] z-10">
@@ -148,13 +158,13 @@ function DashboardContent() {
               <Badge variant="sage" className="text-xs">{user.current_streak} day streak</Badge>
             )}
             <Link href={`/profile?uid=${uid}`} className="w-8 h-8 rounded-full bg-[#2D4A3E]/10 flex items-center justify-center">
-              <User className="w-4 h-4 text-[#2D4A3E]" />
+              <span className="text-xs font-semibold text-[#2D4A3E]">{user.name ? user.name[0].toUpperCase() : 'U'}</span>
             </Link>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-2xl mx-auto px-5 py-6 space-y-5">
+      <div className="max-w-2xl mx-auto px-5 py-6 space-y-5 pb-safe">
         {/* Greeting */}
         <div>
           <h1 className="font-display text-2xl font-bold text-ink">
@@ -165,40 +175,58 @@ function DashboardContent() {
           </p>
         </div>
 
-        {/* Macro progress */}
+        {/* Week strip */}
+        <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+          {DAYS.map((d, i) => (
+            <button key={d} onClick={() => setSelectedDay(i)}
+              className={`flex-shrink-0 w-12 h-14 rounded-2xl flex flex-col items-center justify-center gap-0.5 transition-all ${
+                i === selectedDay ? 'bg-[#2D4A3E] text-white' : 'bg-white text-[#6B7268]'
+              }`}>
+              <span className="text-xs">{d}</span>
+              <span className={`text-sm font-bold ${i === todayIndex && i !== selectedDay ? 'text-[#2D4A3E]' : ''}`}>{i + 1}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Macro ring */}
         <Card>
           <h2 className="font-medium text-ink mb-4">Today&apos;s progress</h2>
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-[#6B7268]">Calories</span>
-                <span className="font-medium text-ink">{log.kcal.current} / {log.kcal.target} kcal</span>
-              </div>
-              <div className="h-2 bg-[#E8E4DC] rounded-full overflow-hidden">
-                <div className="h-full bg-[#2D4A3E] rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min((log.kcal.current / log.kcal.target) * 100, 100)}%` }} />
-              </div>
+          <div className="relative w-48 h-48 mx-auto">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadialBarChart innerRadius="70%" outerRadius="90%" data={ringData} startAngle={90} endAngle={-270}>
+                <RadialBar dataKey="value" cornerRadius={8} background={false} />
+              </RadialBarChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <div className="font-display text-3xl font-bold text-ink">{log.kcal.current}</div>
+              <div className="text-xs text-[#6B7268]">of {log.kcal.target} kcal</div>
+              <div className="text-sm font-semibold text-[#2D4A3E] mt-1">{kcalPct}%</div>
             </div>
-            <div>
-              <div className="flex justify-between text-xs mb-1">
-                <span className="text-[#6B7268]">Protein</span>
-                <span className="font-medium text-ink">{log.protein.current}g / {log.protein.target}g</span>
+          </div>
+          {/* Macro pills */}
+          <div className="flex justify-center gap-3 mt-4">
+            {[
+              { label: 'Protein', value: log.protein.current, unit: 'g' },
+              { label: 'Carbs', value: log.carbs.current, unit: 'g' },
+              { label: 'Fat', value: log.fat.current, unit: 'g' },
+            ].map(m => (
+              <div key={m.label} className="bg-[#F5F3EE] rounded-full px-3 py-1.5 text-center">
+                <div className="text-xs text-[#6B7268]">{m.label}</div>
+                <div className="text-sm font-semibold text-ink">{m.value}{m.unit}</div>
               </div>
-              <div className="h-2 bg-[#E8E4DC] rounded-full overflow-hidden">
-                <div className="h-full bg-[#7BA088] rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min((log.protein.current / log.protein.target) * 100, 100)}%` }} />
-              </div>
-            </div>
+            ))}
           </div>
         </Card>
 
         {/* Today's meals */}
         <div>
-          <h2 className="font-display font-semibold text-lg text-ink mb-3">Today&apos;s meals</h2>
+          <h2 className="font-display font-semibold text-lg text-ink mb-3">
+            {selectedDay === todayIndex ? "Today's meals" : `${DAYS[selectedDay]}'s meals`}
+          </h2>
           {todaySlots && todaySlots.length > 0 ? (
             <div className="space-y-2">
               {todaySlots.map((slot) => (
-                <div key={slot.slot} className="bg-white rounded-xl p-4 border border-[#E8E4DC] flex items-start gap-3">
+                <div key={slot.slot} className="bg-white rounded-[16px] p-4 shadow-[0_2px_16px_rgba(0,0,0,0.06)] flex items-start gap-3">
                   <div className="w-2 h-2 rounded-full bg-[#5A7A6B] mt-2 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
@@ -213,7 +241,7 @@ function DashboardContent() {
               ))}
             </div>
           ) : (
-            <div className="bg-white rounded-xl p-6 border border-[#E8E4DC] text-center">
+            <div className="bg-white rounded-[16px] p-6 shadow-[0_2px_16px_rgba(0,0,0,0.06)] text-center">
               <p className="text-[#6B7268] text-sm mb-3">No meal plan yet.</p>
               <Link href={`/plan?uid=${uid}`} className="text-[#2D4A3E] text-sm font-medium underline">Generate your plan</Link>
             </div>
@@ -223,14 +251,14 @@ function DashboardContent() {
         {/* Quick links */}
         <div className="grid grid-cols-2 gap-3">
           {[
-            { href: `/plan?uid=${uid}`, icon: Calendar, label: 'Full week plan', sub: '7-day view' },
-            { href: `/shop?uid=${uid}`, icon: ShoppingCart, label: 'Shopping list', sub: 'Generate from plan' },
-            { href: `/pantry?uid=${uid}`, icon: Package, label: 'Pantry', sub: pantryAlerts > 0 ? `${pantryAlerts} items low` : 'Track groceries' },
-            { href: `/progress?uid=${uid}`, icon: User, label: 'Progress', sub: 'Charts & streak' },
+            { href: `/plan?uid=${uid}`, label: 'Full week plan', sub: '7-day view', emoji: '📅' },
+            { href: `/shop?uid=${uid}`, label: 'Shopping list', sub: 'Generate from plan', emoji: '🛒' },
+            { href: `/pantry?uid=${uid}`, label: 'Pantry', sub: pantryAlerts > 0 ? `${pantryAlerts} items low` : 'Track groceries', emoji: '📦' },
+            { href: `/progress?uid=${uid}`, label: 'Progress', sub: 'Charts & streak', emoji: '📊' },
           ].map(item => (
             <Link key={item.href} href={item.href}
-              className="bg-white rounded-xl p-4 border border-[#E8E4DC] hover:border-[#2D4A3E]/30 transition-colors flex items-center gap-3">
-              <item.icon className="w-5 h-5 text-[#2D4A3E] shrink-0" />
+              className="bg-white rounded-[16px] p-4 shadow-[0_2px_16px_rgba(0,0,0,0.06)] hover:shadow-[0_4px_24px_rgba(0,0,0,0.10)] transition-shadow flex items-center gap-3">
+              <span className="text-xl shrink-0">{item.emoji}</span>
               <div className="min-w-0">
                 <div className="font-medium text-sm text-ink">{item.label}</div>
                 <div className={`text-xs ${pantryAlerts > 0 && item.label === 'Pantry' ? 'text-[#D4A574]' : 'text-[#6B7268]'}`}>{item.sub}</div>
@@ -241,26 +269,28 @@ function DashboardContent() {
 
         {/* Telegram connect */}
         {!user.telegram_connected ? (
-          <Card className="border border-[#2D4A3E]/20 bg-[#2D4A3E]/5">
+          <Card className="bg-[#2D4A3E]/5">
             <div className="flex items-start gap-3">
               <MessageCircle className="w-5 h-5 text-[#2D4A3E] shrink-0 mt-0.5" />
               <div className="flex-1">
                 <h3 className="font-medium text-ink mb-1">Connect Telegram for daily reminders</h3>
                 <p className="text-sm text-[#6B7268] mb-3">Get pre-meal nudges, post-meal tracking, and your daily summary — all on Telegram.</p>
                 <a href="https://t.me/lockinfood_bot"
-                  className="inline-flex items-center gap-1.5 bg-[#2D4A3E] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#243d32] transition-colors">
+                  className="inline-flex items-center gap-1.5 bg-[#1A1F1B] text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-[#2D4A3E] transition-colors">
                   Open Telegram bot <ChevronRight className="w-3.5 h-3.5" />
                 </a>
               </div>
             </div>
           </Card>
         ) : (
-          <div className="flex items-center gap-2 text-sm text-[#7BA088] bg-[#7BA088]/10 rounded-xl px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-[#7BA088] bg-[#7BA088]/10 rounded-[16px] px-4 py-3">
             <div className="w-2 h-2 rounded-full bg-[#7BA088]" />
             Telegram connected. Daily messages active.
           </div>
         )}
       </div>
+
+      <BottomNav uid={uid} />
     </div>
   )
 }

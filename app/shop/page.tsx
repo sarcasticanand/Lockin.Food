@@ -84,7 +84,7 @@ function ShopContent() {
               return (
                 <div key={cat} className="mb-5">
                   <h3 className="text-xs font-medium text-[#6B7268] uppercase tracking-wider mb-2">{cat}</h3>
-                  <div className="bg-white rounded-xl border border-[#E8E4DC] divide-y divide-[#F0EDE6]">
+                  <div className="bg-white rounded-[16px] shadow-[0_2px_16px_rgba(0,0,0,0.06)] divide-y divide-[#F0EDE6]">
                     {catItems.map(item => (
                       <label key={item.name} className="flex items-center gap-3 p-3.5 cursor-pointer">
                         <Checkbox checked={item.checked} onCheckedChange={() => toggle(item.name)} />
