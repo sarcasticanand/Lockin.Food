@@ -95,3 +95,10 @@ body {
 .status-low { color: var(--amber); }
 .status-expired { color: var(--terracotta); }
 .status-out { color: var(--ink-soft); }
+
+/* Safe-area bottom padding for bottom nav */
+.pb-safe { padding-bottom: max(80px, calc(env(safe-area-inset-bottom) + 64px)); }
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
