@@ -133,6 +133,53 @@ export async function POST(req: NextRequest) {
     if (!chatId) return NextResponse.json({ ok: true })
     if (callbackQueryId) await answerCallbackQuery(callbackQueryId)
 
+    // ---- Callback: mode toggle ----
+    if (callbackData.startsWith('mode:')) {
+      const newMode = callbackData.split(':')[1] as 'full' | 'minimal'
+      const cbUser = await getUser(chatId)
+      if (cbUser) {
+        await db.from('users').update({ messaging_mode: newMode }).eq('id', cbUser.id)
+        const label = newMode === 'minimal' ? 'Minimal (2 messages/day)' : 'Full (10+ messages/day)'
+        await sendMessage(chatId, `✅ Switched to *${label}* mode.\n\nThis will take effect from tomorrow's schedule.`)
+      }
+      return NextResponse.json({ ok: true })
+    }
+
+    // ---- Callback: swap alternative selection ----
+    if (callbackData.startsWith('swap:')) {
+      const parts = callbackData.split(':')
+      const slot = parts[1]
+      const altIndex = parseInt(parts[2], 10)
+      const swapUser = await getUser(chatId)
+      if (!swapUser) return NextResponse.json({ ok: true })
+      const plan = await getActivePlan(swapUser.id)
+      if (!plan) return NextResponse.json({ ok: true })
+
+      const pendingState = swapUser.onboarding_state?.data?.swap_alternatives as Array<Record<string, unknown>> | undefined
+      if (!pendingState || !pendingState[altIndex]) {
+        await sendMessage(chatId, `Sorry, I lost track of those alternatives. Send /swap ${slot} again.`)
+        return NextResponse.json({ ok: true })
+      }
+
+      const chosen = pendingState[altIndex]
+      const planData = plan.plan_data as { days?: Array<Record<string, unknown>> }
+      const dayIndex = new Date().getDay()
+      const days = [...(planData.days || [])]
+      const todayDay = { ...(days[dayIndex] as Record<string, unknown>) }
+      const slots = [...((todayDay.slots as Array<Record<string, unknown>>) || [])]
+      const slotIdx = slots.findIndex(s => s.slot === slot)
+      if (slotIdx !== -1) {
+        slots[slotIdx] = { ...slots[slotIdx], meal: chosen.meal, kcal: chosen.kcal, protein_g: chosen.protein_g, carbs_g: chosen.carbs_g, fat_g: chosen.fat_g }
+      }
+      todayDay.slots = slots
+      days[dayIndex] = todayDay
+
+      await db.from('meal_plans').update({ plan_data: { ...planData, days } }).eq('id', plan.id)
+      await db.from('users').update({ onboarding_state: { step: 0, data: {} } }).eq('id', swapUser.id)
+      await sendMessage(chatId, `✅ ${slot.replace(/_/g, ' ')} updated to *${chosen.meal}* (${chosen.kcal} kcal)`)
+      return NextResponse.json({ ok: true })
+    }
+
     // ---- Callback: meal confirmation buttons ----
     if (callbackData.startsWith('confirm:')) {
       const [, slot, action] = callbackData.split(':')
@@ -311,7 +358,54 @@ export async function POST(req: NextRequest) {
         await sendMessage(chatId, `Plan generation failed. Try /plan again in a moment.`)
         return NextResponse.json({ ok: true })
       }
-      await sendTodayPlan(chatId, plan, user)
+      await sendTodayPlanImproved(chatId, plan, user)
+      return NextResponse.json({ ok: true })
+    }
+
+    // ---- /today ----
+    if (messageText === '/today') {
+      const [plan, todayLog] = await Promise.all([getActivePlan(user.id), getTodayLog(user.id)])
+      if (!plan) {
+        await sendMessage(chatId, `No meal plan found. Send /plan to generate one.`)
+        return NextResponse.json({ ok: true })
+      }
+      await sendTodayProgress(chatId, plan, user, todayLog)
+      return NextResponse.json({ ok: true })
+    }
+
+    // ---- /stats ----
+    if (messageText === '/stats') {
+      await sendWeeklyStats(chatId, user)
+      return NextResponse.json({ ok: true })
+    }
+
+    // ---- /help ----
+    if (messageText === '/help') {
+      await sendHelpMessage(chatId, user)
+      return NextResponse.json({ ok: true })
+    }
+
+    // ---- /mode ----
+    if (messageText === '/mode') {
+      const currentMode = (user.messaging_mode as string) || 'full'
+      const modeLabel = currentMode === 'minimal' ? 'Minimal (2 messages/day)' : 'Full (10+ messages/day)'
+      const switchTo = currentMode === 'minimal' ? 'full' : 'minimal'
+      const switchLabel = switchTo === 'minimal' ? 'Switch to Minimal' : 'Switch to Full'
+      await sendButtons(chatId,
+        `*Messaging mode*\n\nCurrent: *${modeLabel}*\n\n_Full — morning summary, meal reminders, post-meal check-ins, evening recap_\n_Minimal — one morning plan + one evening summary_`,
+        [[{ text: switchLabel, callback_data: `mode:${switchTo}` }]]
+      )
+      return NextResponse.json({ ok: true })
+    }
+
+    // ---- /swap [slot] ----
+    if (messageText.startsWith('/swap') || /\b(swap|change)\s+my\s+\w+/i.test(messageText)) {
+      const plan = await getActivePlan(user.id)
+      if (!plan) {
+        await sendMessage(chatId, `No meal plan found. Send /plan first.`)
+        return NextResponse.json({ ok: true })
+      }
+      await handleSwapRequest(chatId, user, plan, messageText)
       return NextResponse.json({ ok: true })
     }
 
@@ -379,6 +473,249 @@ async function logMealSkipped(db: ReturnType<typeof getServerClient>, user: Reco
   const { data: log } = await db.from('daily_logs').select('*').eq('user_id', user.id).eq('log_date', today).single()
   const meals_skipped = [...((log?.meals_skipped as string[]) || []), slot]
   await db.from('daily_logs').upsert({ user_id: user.id, log_date: today, meals_skipped }, { onConflict: 'user_id,log_date' })
+}
+
+// ============================================================
+// IMPROVED /plan FORMATTER
+// ============================================================
+async function sendTodayPlanImproved(chatId: number, plan: Record<string, unknown>, user: Record<string, unknown>) {
+  const today = new Date();
+  const dayIndex = today.getDay();
+  const dayName = DAY_NAMES[dayIndex];
+  const dayLabel = dayName.charAt(0).toUpperCase() + dayName.slice(1);
+
+  const workoutDays = (user.workout_days as string[]) || [];
+  const isWorkoutDay = workoutDays.includes(dayName);
+  const targetKcal = (user.target_kcal as number) || 2000;
+  const dayKcal = isWorkoutDay ? Math.round(targetKcal * 1.12) : targetKcal;
+
+  const planData = plan.plan_data as { days?: Record<string, unknown>[] } | undefined;
+  const todayPlan = planData?.days?.[dayIndex] as Record<string, unknown> | undefined;
+
+  if (!todayPlan) {
+    await sendMessage(chatId, `No plan found for ${dayLabel}. Try /plan again in a minute.`);
+    return;
+  }
+
+  const slots = (todayPlan.slots || todayPlan.meals) as Record<string, unknown>[] | undefined;
+  if (!slots || slots.length === 0) {
+    await sendMessage(chatId, `Today's plan looks empty. Send /plan again to retry.`);
+    return;
+  }
+
+  let msg = `📅 *Today's Plan* — ${dayLabel}${isWorkoutDay ? ' 💪' : ''}\n\n`;
+
+  let totalKcal = 0, totalProtein = 0, totalCarbs = 0, totalFat = 0;
+  for (const slot of slots) {
+    const slotKey = (slot.slot || slot.name || '') as string;
+    const label = SLOT_LABELS[slotKey] || `🍽️ ${slotKey.replace(/_/g, ' ')}`;
+    const time = (slot.time as string) || '';
+    const meal = (slot.meal || slot.description || slot.food || '') as string;
+    const kcal = Number(slot.kcal || slot.calories || 0);
+    const protein = Number(slot.protein_g || slot.protein || 0);
+    const carbs = Number(slot.carbs_g || slot.carbs || 0);
+    const fat = Number(slot.fat_g || slot.fat || 0);
+    totalKcal += kcal;
+    totalProtein += protein;
+    totalCarbs += carbs;
+    totalFat += fat;
+
+    const timePrefix = time ? `${time} ` : '';
+    msg += `${timePrefix}*${label}*\n${meal}`;
+    if (kcal > 0) {
+      let macroStr = `${kcal} kcal`;
+      if (protein > 0) macroStr += ` | ${protein}g protein`;
+      msg += ` _(${macroStr})_`;
+    }
+    msg += '\n\n';
+  }
+
+  msg += `Total: ${totalKcal} kcal | ${totalProtein}g protein | ${totalCarbs}g carbs | ${totalFat}g fat`;
+
+  await sendMessage(chatId, msg);
+}
+
+// ============================================================
+// /today — progress so far
+// ============================================================
+async function sendTodayProgress(chatId: number, plan: Record<string, unknown>, user: Record<string, unknown>, todayLog: Record<string, unknown> | null) {
+  const today = new Date();
+  const dayIndex = today.getDay();
+  const workoutDays = (user.workout_days as string[]) || [];
+  const isWorkoutDay = workoutDays.includes(DAY_NAMES[dayIndex]);
+  const targetKcal = (user.target_kcal as number) || 2000;
+  const dayKcal = isWorkoutDay ? Math.round(targetKcal * 1.12) : targetKcal;
+  const targetProtein = (user.target_protein_g as number) || 0;
+
+  const loggedKcal = (todayLog?.total_kcal as number) || 0;
+  const loggedProtein = (todayLog?.total_protein_g as number) || 0;
+  const mealsEaten = (todayLog?.meals_eaten as Array<Record<string, unknown>>) || [];
+  const mealsSkipped = (todayLog?.meals_skipped as string[]) || [];
+  const mealsSubstituted = (todayLog?.meals_substituted as Array<Record<string, unknown>>) || [];
+  const loggedSlots = new Set([
+    ...mealsEaten.map(m => m.slot as string),
+    ...mealsSkipped,
+    ...mealsSubstituted.map(m => m.slot as string),
+  ]);
+
+  const pct = dayKcal > 0 ? Math.round((loggedKcal / dayKcal) * 100) : 0;
+
+  let msg = `🕐 *Today so far*\n\n`;
+  msg += `✅ Logged: ${loggedKcal} kcal / ${dayKcal} kcal (${pct}%)\n`;
+  msg += `Protein: ${loggedProtein}g / ${targetProtein}g\n\n`;
+
+  const planData = plan.plan_data as { days?: Record<string, unknown>[] } | undefined;
+  const todayPlan = planData?.days?.[dayIndex] as Record<string, unknown> | undefined;
+  const slots = (todayPlan?.slots || todayPlan?.meals) as Record<string, unknown>[] | undefined;
+
+  if (slots && slots.length > 0) {
+    const remaining = slots.filter(s => !loggedSlots.has((s.slot || s.name) as string));
+    if (remaining.length > 0) {
+      msg += `Remaining meals:\n`;
+      for (const slot of remaining) {
+        const slotKey = (slot.slot || slot.name || '') as string;
+        const time = (slot.time as string) || '';
+        const meal = (slot.meal || slot.description || slot.food || '') as string;
+        const timeStr = time ? ` (${time})` : '';
+        const slotLabel = slotKey.replace(/_/g, ' ');
+        msg += `• ${slotLabel}${timeStr} — ${meal}\n`;
+      }
+    } else {
+      msg += `All meals logged for today! 🎉`;
+    }
+  }
+
+  await sendMessage(chatId, msg);
+}
+
+// ============================================================
+// /stats — weekly summary
+// ============================================================
+async function sendWeeklyStats(chatId: number, user: Record<string, unknown>) {
+  const db = getServerClient();
+  const today = new Date();
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(today.getDate() - 6);
+  const fromDate = sevenDaysAgo.toISOString().split('T')[0];
+  const toDate = today.toISOString().split('T')[0];
+
+  const { data: logs } = await db
+    .from('daily_logs')
+    .select('*')
+    .eq('user_id', user.id)
+    .gte('log_date', fromDate)
+    .lte('log_date', toDate);
+
+  const streak = (user.current_streak as number) || 0;
+  const targetKcal = (user.target_kcal as number) || 2000;
+  const targetProtein = (user.target_protein_g as number) || 0;
+
+  const daysLogged = logs?.length || 0;
+  const avgKcal = daysLogged > 0
+    ? Math.round((logs || []).reduce((sum, l) => sum + (l.total_kcal || 0), 0) / daysLogged)
+    : 0;
+  const avgProtein = daysLogged > 0
+    ? Math.round((logs || []).reduce((sum, l) => sum + (l.total_protein_g || 0), 0) / daysLogged)
+    : 0;
+
+  let msg = `📊 *Your week*\n\n`;
+  msg += `🔥 Streak: ${streak} days\n`;
+  msg += `📅 This week: ${daysLogged}/7 days logged\n`;
+  msg += `🎯 Avg calories: ${avgKcal} / ${targetKcal} kcal\n`;
+  msg += `💪 Avg protein: ${avgProtein}g / ${targetProtein}g\n\n`;
+  msg += `Keep it up! 💪`;
+
+  await sendMessage(chatId, msg);
+}
+
+// ============================================================
+// /help — welcome/help message
+// ============================================================
+async function sendHelpMessage(chatId: number, user: Record<string, unknown>) {
+  const isMinimal = (user.messaging_mode as string) === 'minimal';
+  const scheduleText = isMinimal
+    ? `☀️ One morning plan + 🌙 one evening summary`
+    : `☀️ Morning summary → meal reminders → post-meal check-ins → 🌙 evening recap`;
+
+  const msg =
+    `Here's how to use me:\n\n` +
+    `📅 /plan — Today's full meal schedule with macros\n` +
+    `🕐 /today — What's left for the day + progress so far\n` +
+    `📊 /stats — Weekly summary, streak & adherence\n` +
+    `🔄 /swap [meal] — e.g. "swap my dinner" to get an alternative\n` +
+    `🥗 /pantry — View & update your pantry\n` +
+    `🔔 /mode — Toggle full vs minimal messaging\n` +
+    `❓ /help — Show this message again\n\n` +
+    `Every day you'll get:\n${scheduleText}`;
+
+  await sendMessage(chatId, msg);
+}
+
+// ============================================================
+// /swap — suggest alternatives via Gemini
+// ============================================================
+async function handleSwapRequest(chatId: number, user: Record<string, unknown>, plan: Record<string, unknown>, messageText: string) {
+  const db = getServerClient();
+  // Extract slot from message: /swap dinner, /swap lunch, "swap my dinner", etc.
+  const slotMatch = messageText.match(/\b(early_morning|breakfast|mid_morning|lunch|evening_snack|dinner|pre_bed|morning|snack|evening)\b/i);
+  let slotName = slotMatch?.[1]?.toLowerCase() || '';
+  // Normalize aliases
+  const aliasMap: Record<string, string> = { morning: 'breakfast', snack: 'evening_snack', evening: 'dinner' };
+  if (aliasMap[slotName]) slotName = aliasMap[slotName];
+
+  const dayIndex = new Date().getDay();
+  const planData = plan.plan_data as { days?: Array<Record<string, unknown>> };
+  const todayPlan = planData?.days?.[dayIndex] as Record<string, unknown> | undefined;
+  const slots = (todayPlan?.slots || todayPlan?.meals) as Array<Record<string, unknown>> | undefined;
+
+  if (!slotName || !slots) {
+    await sendMessage(chatId, `Which meal do you want to swap? Try:\n/swap breakfast\n/swap lunch\n/swap dinner\n/swap evening_snack`);
+    return;
+  }
+
+  const currentSlot = slots.find(s => (s.slot || s.name) === slotName) as Record<string, unknown> | undefined;
+  if (!currentSlot) {
+    await sendMessage(chatId, `Couldn't find *${slotName}* in today's plan. Available: ${slots.map(s => s.slot || s.name).join(', ')}`);
+    return;
+  }
+
+  await sendTyping(chatId);
+
+  const goal = (user.goal as string) || 'healthy eating';
+  const restrictions: string[] = [];
+  if (!user.okay_with_dairy) restrictions.push('no dairy');
+  if (!user.okay_with_eggs) restrictions.push('no eggs');
+  if (!user.okay_with_meat_fish) restrictions.push('no meat or fish');
+  if ((user.allergies as string[])?.length) restrictions.push(`allergic to: ${(user.allergies as string[]).join(', ')}`);
+
+  const prompt = `User wants to swap ${currentSlot.meal || slotName} for ${slotName} on their ${goal} diet. Suggest 2 alternative Indian meals with similar calories (around ${currentSlot.kcal || 300} kcal) and macros. User restrictions: ${restrictions.join(', ') || 'none'}. Return JSON only: {"alternatives": [{"meal": "string", "kcal": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "reason": "string"}]}`;
+
+  let alternatives: Array<{ meal: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number; reason: string }> = [];
+  try {
+    const raw = await generateChatContent('You are a nutrition expert. Return only valid JSON, no markdown.', prompt);
+    const parsed = JSON.parse(raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
+    alternatives = parsed.alternatives || [];
+  } catch {
+    await sendMessage(chatId, `Couldn't generate alternatives right now. Try again in a moment.`);
+    return;
+  }
+
+  if (!alternatives.length) {
+    await sendMessage(chatId, `No alternatives found. Try again in a moment.`);
+    return;
+  }
+
+  // Store alternatives in user state for callback retrieval
+  await db.from('users').update({
+    onboarding_state: { step: 'waiting_swap', data: { swap_alternatives: alternatives, swap_slot: slotName } },
+  }).eq('id', user.id);
+
+  const msgText = `🔄 *Swap ${slotName.replace(/_/g, ' ')}*\n\nCurrent: ${currentSlot.meal || slotName}\n\nChoose an alternative:`;
+  const keyboard = alternatives.map((alt, i) => [
+    { text: `${alt.meal} (${alt.kcal} kcal) — ${alt.reason}`, callback_data: `swap:${slotName}:${i}` },
+  ]);
+
+  await sendButtons(chatId, msgText, keyboard);
 }
 
 async function handleSubstitutedMeal(chatId: number, user: Record<string, unknown>, slot: string, dishName: string) {
