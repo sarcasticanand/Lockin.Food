@@ -8,7 +8,7 @@ function cronAuth(req: NextRequest) {
 }
 
 // Runs every 15 min. Sends any scheduled_messages due in the current window.
-export async function GET(req: NextRequest) {
+async function handler(req: NextRequest) {
   if (!cronAuth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const db = getServerClient()
@@ -62,3 +62,6 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({ sent })
 }
+
+export const GET = handler
+export const POST = handler
