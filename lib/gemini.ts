@@ -19,12 +19,10 @@ export function getChatModel(systemInstruction?: string) {
 
 export function getPlanModel() {
   return ai().getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-1.5-flash',
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0.7,
-      // @ts-expect-error thinkingConfig is supported but not yet in types
-      thinkingConfig: { thinkingBudget: 0 },
     },
   })
 }
