@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase';
 import { buildMealPlanPrompt } from '@/lib/prompt-builder';
-import { getPlanModel } from '@/lib/gemini';
+import { generatePlanContent } from '@/lib/gemini';
 
 export const maxDuration = 60;
 
@@ -30,20 +30,15 @@ export async function POST(req: NextRequest) {
 
     const prompt = await buildMealPlanPrompt(user, pantryItems || []);
 
-    let result;
+    let text: string;
     try {
-      const model = getPlanModel();
-      result = await model.generateContent(prompt);
+      text = await generatePlanContent(prompt);
     } catch (geminiError) {
       console.error('[generate-plan] Gemini error:', geminiError);
       return NextResponse.json({ error: `AI error: ${(geminiError as Error).message}` }, { status: 500 });
     }
 
-    let text = result.response
-      .text()
-      .replace(/```json\n?/g, '')
-      .replace(/```\n?/g, '')
-      .trim();
+    text = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
 
     let planData: { days: unknown[] };
     try {

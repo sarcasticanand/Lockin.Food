@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerClient } from '@/lib/supabase'
 import { buildSystemPrompt, getFeatureFlags } from '@/lib/prompt-builder'
-import { getChatModel } from '@/lib/gemini'
+import { generateChatContent } from "@/lib/gemini"
 import { sendMessage, sendTyping, sendButtons, answerCallbackQuery, mealConfirmButtons, pantryAlertButtons } from '@/lib/telegram-helpers'
 
 // ============================================================
@@ -325,9 +325,8 @@ export async function POST(req: NextRequest) {
     void getFeatureFlags()
 
     const systemPrompt = await buildSystemPrompt(user, plan, pantry, todayLog)
-    const model = getChatModel(systemPrompt)
-    const result = await model.generateContent(messageText)
-    await sendMessage(chatId, result.response.text())
+    const reply = await generateChatContent(systemPrompt, messageText)
+    await sendMessage(chatId, reply)
 
     return NextResponse.json({ ok: true })
   } catch (error) {
@@ -396,12 +395,10 @@ Estimate the macros (kcal, protein_g, carbs_g, fat_g).
 Estimate key ingredients (name, approximate grams).
 Return JSON: { "kcal": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "ingredients": [{"name":"","grams":0}], "comment": "brief suggestion" }`
 
-  const model = getChatModel()
-  const result = await model.generateContent(prompt)
   let estimated: Record<string, unknown> = {}
   try {
-    const text = result.response.text().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    estimated = JSON.parse(text)
+    const text = await generateChatContent('', prompt)
+    estimated = JSON.parse(text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim())
   } catch { /* ignore */ }
 
   const today = new Date().toISOString().split('T')[0]
