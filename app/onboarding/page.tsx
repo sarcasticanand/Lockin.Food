@@ -45,6 +45,7 @@ interface FormData {
   name: string
   phone_number: string
   telegram_username: string
+  messaging_mode: 'full' | 'minimal'
 }
 
 const INITIAL: FormData = {
@@ -56,6 +57,7 @@ const INITIAL: FormData = {
   allergies: [], dislikes: [], dislikes_notes: '',
   budget_weekly: 2000, max_cooking_time: '', meal_preps: false,
   wake_time: '07:00', sleep_time: '23:00', name: '', phone_number: '', telegram_username: '',
+  messaging_mode: 'full',
 }
 
 const WORKOUT_TYPES = ['Gym / Weight Training', 'Running / Cardio', 'Yoga / Pilates', 'Swimming', 'Sports', 'Walking']
@@ -118,6 +120,7 @@ export default function OnboardingPage() {
         workout_days: form.workout_days, workout_time: form.workout_time || null,
         budget_weekly: form.budget_weekly, max_cooking_time: form.max_cooking_time || null, meal_preps: form.meal_preps,
         wake_time: form.wake_time, sleep_time: form.sleep_time,
+        messaging_mode: form.messaging_mode,
         onboarding_complete: true,
         ...(macros ? {
           bmi: macros.bmi, bmr: macros.bmr, tdee: macros.tdee,
@@ -493,6 +496,25 @@ export default function OnboardingPage() {
             <h2 className="font-display text-2xl font-bold text-ink mb-1">Schedule and contact</h2>
             <p className="text-[#6B7268] mb-6">We will send reminders at the right time for you.</p>
             <div className="space-y-4">
+              <div>
+                <Label className="mb-3 block font-medium">How many messages do you want per day?</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => set('messaging_mode', 'full')}
+                    className={`p-4 rounded-xl border-2 text-left transition-all duration-200 ${form.messaging_mode === 'full' ? 'border-[#2D4A3E] bg-[#2D4A3E]/5' : 'border-[#E8E4DC] bg-white hover:border-[#2D4A3E]/30'}`}
+                  >
+                    <div className="font-medium text-sm text-ink mb-1">Full — All reminders</div>
+                    <div className="text-xs text-[#6B7268]">Morning summary, meal reminders, post-meal check-ins, evening recap (10+ messages)</div>
+                  </button>
+                  <button
+                    onClick={() => set('messaging_mode', 'minimal')}
+                    className={`p-4 rounded-xl border-2 text-left transition-all duration-200 ${form.messaging_mode === 'minimal' ? 'border-[#2D4A3E] bg-[#2D4A3E]/5' : 'border-[#E8E4DC] bg-white hover:border-[#2D4A3E]/30'}`}
+                  >
+                    <div className="font-medium text-sm text-ink mb-1">Minimal — Just essentials</div>
+                    <div className="text-xs text-[#6B7268]">One morning plan + one evening summary (2 messages/day)</div>
+                  </button>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="mb-2 block">Wake up time</Label>

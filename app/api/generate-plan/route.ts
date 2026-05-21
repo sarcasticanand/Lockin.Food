@@ -76,14 +76,61 @@ export async function POST(req: NextRequest) {
 
     if (user.telegram_chat_id) {
       const TGAPI = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+      const isMinimal = user.messaging_mode === 'minimal';
+      const scheduleText = isMinimal
+        ? `☀️ One morning plan + 🌙 one evening summary`
+        : `☀️ Morning summary → meal reminders → post-meal check-ins → 🌙 evening recap`;
+
+      const welcomeText =
+        `🎉 Your plan is ready, ${user.name || 'there'}!\n\n` +
+        `I've built your personalised 7-day meal plan based on your goals.\n\n` +
+        `Here's how to use me:\n\n` +
+        `📅 /plan — Today's full meal schedule with macros\n` +
+        `🕐 /today — What's left for the day + progress so far\n` +
+        `📊 /stats — Weekly summary, streak & adherence\n` +
+        `🔄 /swap [meal] — e.g. "swap my dinner" to get an alternative\n` +
+        `🥗 /pantry — View & update your pantry\n` +
+        `❓ /help — Show this message again\n\n` +
+        `Every day you'll get:\n${scheduleText}\n\n` +
+        `Ready? Here's today 👇`;
+
       await fetch(`${TGAPI}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: user.telegram_chat_id,
-          text: `✅ Your 7-day meal plan is ready!\n\nSend /plan to see today's meals.`,
+          text: welcomeText,
+          parse_mode: 'Markdown',
         }),
       }).catch(() => {});
+
+      // Send today's meal plan as second message
+      const today = new Date();
+      const dayIndex = today.getDay();
+      const planDays = (planData as { days?: Array<Record<string, unknown>> }).days;
+      const todayPlan = planDays?.[dayIndex] as Record<string, unknown> | undefined;
+      const slots = (todayPlan?.slots || todayPlan?.meals) as Array<Record<string, unknown>> | undefined;
+      if (slots && slots.length > 0) {
+        let planMsg = '';
+        for (const slot of slots) {
+          const time = (slot.time as string) || '';
+          const slotName = (slot.slot || slot.name || '') as string;
+          const meal = (slot.meal || slot.description || slot.food || '') as string;
+          const kcal = Number(slot.kcal || slot.calories || 0);
+          const timePrefix = time ? `${time} ` : '';
+          const slotLabel = slotName.replace(/_/g, ' ');
+          planMsg += `${timePrefix}*${slotLabel}*\n${meal} (${kcal} kcal)\n\n`;
+        }
+        await fetch(`${TGAPI}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: user.telegram_chat_id,
+            text: planMsg.trim(),
+            parse_mode: 'Markdown',
+          }),
+        }).catch(() => {});
+      }
     }
 
     return NextResponse.json({ success: true, plan: newPlan });

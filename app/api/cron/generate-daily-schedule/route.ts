@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   const { data: users } = await db
     .from('users')
-    .select('id, name, telegram_chat_id, wake_time, sleep_time, workout_time, workout_days, target_kcal, target_protein_g, current_streak')
+    .select('id, name, telegram_chat_id, wake_time, sleep_time, workout_time, workout_days, target_kcal, target_protein_g, current_streak, messaging_mode')
     .eq('telegram_connected', true)
     .eq('onboarding_complete', true)
 
@@ -59,77 +59,99 @@ export async function GET(req: NextRequest) {
     const lnTime = (ln?.time as string) || addMinutes(wake, 360)
     const dnTime = (dn?.time as string) || addMinutes(wake, 780)
     const dayKcal = isWorkoutDay ? Math.round(((user.target_kcal as number) || 2000) * 1.12) : (user.target_kcal as number) || 2000
+    const isMinimal = (user.messaging_mode as string) === 'minimal'
 
-    const messages: Array<{ user_id: string; scheduled_time: string; message_type: string; message_template: string }> = [
-      {
-        user_id: user.id as string,
-        scheduled_time: wake,
-        message_type: 'wake_check',
-        message_template: `Good morning{{name}}! 🔒 Ready to stay locked in today?\n\nTarget: *${dayKcal} kcal · ${user.target_protein_g || 0}g protein*`,
-      },
-      {
-        user_id: user.id as string,
-        scheduled_time: addMinutes(bfTime, -30),
-        message_type: 'pre_breakfast',
-        message_template: `Breakfast in 30 min: ${(bf?.meal as string) || 'your planned breakfast'} _(${bf?.kcal || 0} kcal · ${bf?.protein_g || 0}g protein)_`,
-      },
-      {
-        user_id: user.id as string,
-        scheduled_time: addMinutes(bfTime, 60),
-        message_type: 'post_breakfast',
-        message_template: `Did you have the planned breakfast?`,
-      },
-      {
-        user_id: user.id as string,
-        scheduled_time: addMinutes(lnTime, -30),
-        message_type: 'pre_lunch',
-        message_template: `Lunch coming up: ${(ln?.meal as string) || 'your planned lunch'} _(${ln?.kcal || 0} kcal · ${ln?.protein_g || 0}g protein)_`,
-      },
-      {
-        user_id: user.id as string,
-        scheduled_time: addMinutes(lnTime, 60),
-        message_type: 'post_lunch',
-        message_template: `Did you have the planned lunch?`,
-      },
-      {
-        user_id: user.id as string,
-        scheduled_time: addMinutes(lnTime, 90),
-        message_type: 'hydration_1',
-        message_template: `Quick check — have you had at least 5 glasses of water today? 💧`,
-      },
-      {
-        user_id: user.id as string,
-        scheduled_time: addMinutes(dnTime, -30),
-        message_type: 'pre_dinner',
-        message_template: `Dinner: ${(dn?.meal as string) || 'your planned dinner'} _(${dn?.kcal || 0} kcal · ${dn?.protein_g || 0}g protein)_`,
-      },
-      {
-        user_id: user.id as string,
-        scheduled_time: addMinutes(dnTime, 60),
-        message_type: 'post_dinner',
-        message_template: `Did you have the planned dinner?`,
-      },
-      {
-        user_id: user.id as string,
-        scheduled_time: addMinutes(dnTime, 90),
-        message_type: 'hydration_2',
-        message_template: `Evening water check. Target: 8 glasses today. Staying hydrated? 💧`,
-      },
-      {
-        user_id: user.id as string,
-        scheduled_time: addMinutes(sleep, -15),
-        message_type: 'end_of_day',
-        message_template: `Day done. Streak: {{streak}} days 🔒\n\nTarget: ${dayKcal} kcal · ${user.target_protein_g || 0}g protein\n\nSee your dashboard: ${process.env.APP_URL}/dashboard`,
-      },
-    ]
+    let messages: Array<{ user_id: string; scheduled_time: string; message_type: string; message_template: string }>
 
-    if (isWorkoutDay && user.workout_time) {
-      messages.push({
-        user_id: user.id as string,
-        scheduled_time: addMinutes(user.workout_time as string, -60),
-        message_type: 'workout_reminder',
-        message_template: `Workout in 60 min 💪 Don't forget your pre-workout nutrition.`,
-      })
+    if (isMinimal) {
+      // Minimal mode: morning summary at wake+30 and evening summary at sleep-90
+      messages = [
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(wake, 30),
+          message_type: 'morning_summary',
+          message_template: `☀️ Good morning{{name}}! Here's your plan for today 🔒\n\nTarget: *${dayKcal} kcal · ${user.target_protein_g || 0}g protein*\n\nSend /plan to see all your meals.`,
+        },
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(sleep, -90),
+          message_type: 'evening_summary',
+          message_template: `🌙 How was your day{{name}}? Streak: {{streak}} days 🔒\n\nTarget: ${dayKcal} kcal · ${user.target_protein_g || 0}g protein\n\nSee your dashboard: ${process.env.APP_URL}/dashboard`,
+        },
+      ]
+    } else {
+      // Full mode: all reminders
+      messages = [
+        {
+          user_id: user.id as string,
+          scheduled_time: wake,
+          message_type: 'wake_check',
+          message_template: `Good morning{{name}}! 🔒 Ready to stay locked in today?\n\nTarget: *${dayKcal} kcal · ${user.target_protein_g || 0}g protein*`,
+        },
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(bfTime, -30),
+          message_type: 'pre_breakfast',
+          message_template: `Breakfast in 30 min: ${(bf?.meal as string) || 'your planned breakfast'} _(${bf?.kcal || 0} kcal · ${bf?.protein_g || 0}g protein)_`,
+        },
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(bfTime, 60),
+          message_type: 'post_breakfast',
+          message_template: `Did you have the planned breakfast?`,
+        },
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(lnTime, -30),
+          message_type: 'pre_lunch',
+          message_template: `Lunch coming up: ${(ln?.meal as string) || 'your planned lunch'} _(${ln?.kcal || 0} kcal · ${ln?.protein_g || 0}g protein)_`,
+        },
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(lnTime, 60),
+          message_type: 'post_lunch',
+          message_template: `Did you have the planned lunch?`,
+        },
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(lnTime, 90),
+          message_type: 'hydration_1',
+          message_template: `Quick check — have you had at least 5 glasses of water today? 💧`,
+        },
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(dnTime, -30),
+          message_type: 'pre_dinner',
+          message_template: `Dinner: ${(dn?.meal as string) || 'your planned dinner'} _(${dn?.kcal || 0} kcal · ${dn?.protein_g || 0}g protein)_`,
+        },
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(dnTime, 60),
+          message_type: 'post_dinner',
+          message_template: `Did you have the planned dinner?`,
+        },
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(dnTime, 90),
+          message_type: 'hydration_2',
+          message_template: `Evening water check. Target: 8 glasses today. Staying hydrated? 💧`,
+        },
+        {
+          user_id: user.id as string,
+          scheduled_time: addMinutes(sleep, -15),
+          message_type: 'end_of_day',
+          message_template: `Day done. Streak: {{streak}} days 🔒\n\nTarget: ${dayKcal} kcal · ${user.target_protein_g || 0}g protein\n\nSee your dashboard: ${process.env.APP_URL}/dashboard`,
+        },
+      ]
+
+      if (isWorkoutDay && user.workout_time) {
+        messages.push({
+          user_id: user.id as string,
+          scheduled_time: addMinutes(user.workout_time as string, -60),
+          message_type: 'workout_reminder',
+          message_template: `Workout in 60 min 💪 Don't forget your pre-workout nutrition.`,
+        })
+      }
     }
 
     // Delete today's undelivered messages for this user first

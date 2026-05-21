@@ -1,0 +1,15 @@
+name: Dispatch Scheduled Messages
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger dispatch-messages cron
+        run: |
+          curl -sf -X POST "${{ secrets.APP_URL }}/api/cron/dispatch-messages" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" || true
