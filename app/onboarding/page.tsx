@@ -74,6 +74,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(1)
   const [form, setForm] = useState<FormData>(INITIAL)
   const [loading, setLoading] = useState(false)
+  const [loadingMessage, setLoadingMessage] = useState('')
   const [error, setError] = useState('')
 
   const set = <K extends keyof FormData>(key: K, val: FormData[K]) =>
@@ -124,19 +125,41 @@ export default function OnboardingPage() {
           target_carbs_g: macros.target_carbs_g, target_fat_g: macros.target_fat_g,
         } : {}),
       }
+
+      // Step 1: Save profile
       const res = await fetch('/api/onboarding', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to save')
+
+      // Step 2: Generate plan directly from browser (no server-to-server timeout)
+      setLoadingMessage('Generating your personalised meal plan with AI...')
+      const planRes = await fetch('/api/generate-plan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: data.userId }),
+      })
+      const planData = await planRes.json()
+      if (!planRes.ok) throw new Error(planData.error || 'Plan generation failed')
+
       router.push(`/dashboard?uid=${data.userId}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong')
       setLoading(false)
+      setLoadingMessage('')
     }
   }
 
   const bmiInfo = macros ? getBMILabel(macros.bmi) : null
+
+  if (loadingMessage) return (
+    <div className="min-h-screen bg-[#2D4A3E] flex flex-col items-center justify-center px-6 text-white">
+      <div className="w-12 h-12 border-3 border-white/30 border-t-white rounded-full animate-spin mb-6" />
+      <h2 className="font-display text-2xl font-bold mb-2 text-center">Building your plan</h2>
+      <p className="text-white/70 text-center text-sm max-w-xs">{loadingMessage}</p>
+      <p className="text-white/40 text-xs mt-4">This takes 15–30 seconds</p>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-cream">
