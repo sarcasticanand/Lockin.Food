@@ -3,6 +3,8 @@ import { getServerClient } from '@/lib/supabase';
 import { buildMealPlanPrompt } from '@/lib/prompt-builder';
 import { getPlanModel } from '@/lib/gemini';
 
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const supabase = getServerClient();
   try {
@@ -18,7 +20,7 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (userError || !user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      return NextResponse.json({ error: `User not found: ${userError?.message}` }, { status: 404 });
     }
 
     const { data: pantryItems } = await supabase
@@ -28,8 +30,15 @@ export async function POST(req: NextRequest) {
 
     const prompt = await buildMealPlanPrompt(user, pantryItems || []);
 
-    const model = getPlanModel();
-    const result = await model.generateContent(prompt);
+    let result;
+    try {
+      const model = getPlanModel();
+      result = await model.generateContent(prompt);
+    } catch (geminiError) {
+      console.error('[generate-plan] Gemini error:', geminiError);
+      return NextResponse.json({ error: `AI error: ${(geminiError as Error).message}` }, { status: 500 });
+    }
+
     let text = result.response
       .text()
       .replace(/```json\n?/g, '')
@@ -38,19 +47,14 @@ export async function POST(req: NextRequest) {
 
     let planData: { days: unknown[] };
     try {
-      // Try to extract JSON object from within the text (Gemini sometimes adds prose)
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) text = jsonMatch[0];
       const parsed = JSON.parse(text);
       planData = Array.isArray(parsed) ? { days: parsed } : parsed;
-      if (!planData.days || !Array.isArray(planData.days)) throw new Error('No days array');
+      if (!planData.days || !Array.isArray(planData.days)) throw new Error('No days array in response');
     } catch (parseError) {
       console.error('[generate-plan] parse error. Raw text (first 500):', text.slice(0, 500));
-      console.error('[generate-plan] parse error detail:', parseError);
-      return NextResponse.json(
-        { error: 'AI returned invalid format. Try again.' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `AI returned invalid format: ${(parseError as Error).message}` }, { status: 500 });
     }
 
     await supabase
@@ -72,10 +76,9 @@ export async function POST(req: NextRequest) {
 
     if (insertError) {
       console.error('[generate-plan] DB insert error:', insertError);
-      return NextResponse.json({ error: 'Failed to save plan' }, { status: 500 });
+      return NextResponse.json({ error: `DB error: ${insertError.message}` }, { status: 500 });
     }
 
-    // Notify user on Telegram if they have a chat ID
     if (user.telegram_chat_id) {
       const TGAPI = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
       await fetch(`${TGAPI}/sendMessage`, {
@@ -84,7 +87,6 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           chat_id: user.telegram_chat_id,
           text: `✅ Your 7-day meal plan is ready!\n\nSend /plan to see today's meals.`,
-          parse_mode: 'Markdown',
         }),
       }).catch(() => {});
     }
@@ -92,6 +94,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, plan: newPlan });
   } catch (error) {
     console.error('[generate-plan] error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: `Server error: ${(error as Error).message}` }, { status: 500 });
   }
 }
