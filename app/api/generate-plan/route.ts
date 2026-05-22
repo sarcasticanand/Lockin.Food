@@ -82,9 +82,8 @@ export async function POST(req: NextRequest) {
         : `☀️ Morning summary → meal reminders → post-meal check-ins → 🌙 evening recap`;
 
       const welcomeText =
-        `🎉 Your plan is ready, ${user.name || 'there'}!\n\n` +
-        `I've built your personalised 7-day meal plan based on your goals.\n\n` +
-        `Here's how to use me:\n\n` +
+        `🎉 Your plan is ready, ${user.name || 'there'}! I'm *Kanshi*, your AI nutrition coach.\n\n` +
+        `Here's what I can do:\n\n` +
         `📅 /plan — Today's full meal schedule with macros\n` +
         `🕐 /today — What's left for the day + progress so far\n` +
         `📊 /stats — Weekly summary, streak & adherence\n` +

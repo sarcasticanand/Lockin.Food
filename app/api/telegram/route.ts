@@ -261,8 +261,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Try username match
-      const { data: byUsername } = await db.from('users').select('*').eq('telegram_username', username).single()
+      // Try username match (case-insensitive)
+      const { data: byUsername } = await db.from('users').select('*').ilike('telegram_username', username).single()
       if (byUsername) {
         await db.from('users').update({ telegram_chat_id: chatId, telegram_connected: true }).eq('id', byUsername.id)
         const freshUser = { ...byUsername, telegram_chat_id: chatId, telegram_connected: true }
@@ -282,10 +282,9 @@ export async function POST(req: NextRequest) {
       } else {
         await sendMessage(
           chatId,
-          `Hey${username ? ` @${username}` : ''}! Welcome to *Lockin* 🔒\n\n` +
-          `I'm your AI nutrition coach. Set up your profile (takes 5 min):\n` +
-          `👉 ${process.env.APP_URL}/onboarding\n\n` +
-          `Already signed up on the website? What's your phone number? (the one you used on lockin.food)`
+          `Hey${username ? ` @${username}` : ''}! 👋\n\n` +
+          `Already signed up at *kanshi.app*? Reply with the phone number you used — I'll find your account instantly.\n\n` +
+          `_New here? Set up your profile first:_\n👉 ${process.env.APP_URL}/onboarding`
         )
         await db.from('users').update({ onboarding_state: { step: 'waiting_phone', data: {} } }).eq('telegram_chat_id', chatId)
       }
@@ -306,7 +305,7 @@ export async function POST(req: NextRequest) {
           await sendWelcomeWithPlan(chatId, { ...phoneUser, telegram_chat_id: chatId, telegram_connected: true })
         } else {
           await db.from('users').update({ onboarding_state: { step: 0, data: {} } }).eq('telegram_chat_id', chatId)
-          await sendMessage(chatId, `Hmm, couldn't find that number. Try setting up your profile:\n👉 ${process.env.APP_URL}/onboarding`)
+          await sendMessage(chatId, `Hmm, couldn't find that number. Double-check and try again, or sign up at:\n👉 ${process.env.APP_URL}/onboarding`)
         }
       } else {
         await sendMessage(chatId, `That doesn't look like a valid phone number. Try again or go to:\n👉 ${process.env.APP_URL}/onboarding`)
@@ -440,8 +439,8 @@ async function sendWelcomeWithPlan(chatId: number, user: Record<string, unknown>
     : `☀️ Morning summary → meal reminders → post-meal check-ins → 🌙 evening recap`;
 
   const welcomeText =
-    `🎉 Welcome${user.name ? `, ${user.name}` : ''}! Your plan is ready 🔒\n\n` +
-    `Here's how to use me:\n\n` +
+    `🎉 Welcome${user.name ? `, ${user.name}` : ''}! I'm *Kanshi*, your AI nutrition coach.\n\n` +
+    `Your 7-day meal plan is ready. Here's what I can do:\n\n` +
     `📅 /plan — Today's full meal schedule with macros\n` +
     `🕐 /today — What's left for the day + progress so far\n` +
     `📊 /stats — Weekly summary, streak & adherence\n` +
