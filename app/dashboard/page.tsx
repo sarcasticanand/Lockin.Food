@@ -59,8 +59,6 @@ const SLOT_LABELS: Record<string, string> = {
   pre_bed: 'Pre-Bed',
 }
 
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
 function DashboardContent() {
   const params = useSearchParams()
   const uid = params.get('uid')
@@ -68,8 +66,6 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true)
   const [generatingPlan, setGeneratingPlan] = useState(false)
   const [planError, setPlanError] = useState('')
-  const todayIndex = new Date().getDay()
-  const [selectedDay, setSelectedDay] = useState(todayIndex)
 
   useEffect(() => {
     if (!uid) return
@@ -175,19 +171,6 @@ function DashboardContent() {
           </p>
         </div>
 
-        {/* Week strip */}
-        <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-          {DAYS.map((d, i) => (
-            <button key={d} onClick={() => setSelectedDay(i)}
-              className={`flex-shrink-0 w-12 h-14 rounded-2xl flex flex-col items-center justify-center gap-0.5 transition-all ${
-                i === selectedDay ? 'bg-[#2D4A3E] text-white' : 'bg-white text-[#6B7268]'
-              }`}>
-              <span className="text-xs">{d}</span>
-              <span className={`text-sm font-bold ${i === todayIndex && i !== selectedDay ? 'text-[#2D4A3E]' : ''}`}>{i + 1}</span>
-            </button>
-          ))}
-        </div>
-
         {/* Macro ring */}
         <Card>
           <h2 className="font-medium text-ink mb-4">Today&apos;s progress</h2>
@@ -220,9 +203,7 @@ function DashboardContent() {
 
         {/* Today's meals */}
         <div>
-          <h2 className="font-display font-semibold text-lg text-ink mb-3">
-            {selectedDay === todayIndex ? "Today's meals" : `${DAYS[selectedDay]}'s meals`}
-          </h2>
+          <h2 className="font-display font-semibold text-lg text-ink mb-3">Today&apos;s meals</h2>
           {todaySlots && todaySlots.length > 0 ? (
             <div className="space-y-2">
               {todaySlots.map((slot) => (
@@ -269,15 +250,16 @@ function DashboardContent() {
 
         {/* Telegram connect */}
         {!user.telegram_connected ? (
-          <Card className="bg-[#2D4A3E]/5">
+          <Card className="bg-[#2D4A3E]/5 border border-[#2D4A3E]/20">
             <div className="flex items-start gap-3">
               <MessageCircle className="w-5 h-5 text-[#2D4A3E] shrink-0 mt-0.5" />
               <div className="flex-1">
-                <h3 className="font-medium text-ink mb-1">Connect Telegram for daily reminders</h3>
-                <p className="text-sm text-[#6B7268] mb-3">Get pre-meal nudges, post-meal tracking, and your daily summary — all on Telegram.</p>
+                <h3 className="font-medium text-ink mb-1">Activate your daily meal messages</h3>
+                <p className="text-sm text-[#6B7268] mb-2">Send <span className="font-semibold text-ink">/start</span> to the bot on Telegram. It will recognise your account and send your welcome message + today&apos;s plan right away.</p>
+                <p className="text-xs text-[#6B7268] mb-3">After that you&apos;ll get meal reminders, post-meal check-ins, and a daily recap.</p>
                 <a href="https://t.me/lockinfood_bot"
                   className="inline-flex items-center gap-1.5 bg-[#1A1F1B] text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-[#2D4A3E] transition-colors">
-                  Open Telegram bot <ChevronRight className="w-3.5 h-3.5" />
+                  Open @lockinfood_bot <ChevronRight className="w-3.5 h-3.5" />
                 </a>
               </div>
             </div>

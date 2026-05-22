@@ -256,7 +256,7 @@ export async function POST(req: NextRequest) {
           .single()
 
         if (webUser) {
-          await sendMessage(chatId, `✅ Linked! Welcome${webUser.name ? `, ${webUser.name}` : ''} 🔒\n\nSend /plan to see today's meals.`)
+          await sendWelcomeWithPlan(chatId, webUser)
           return NextResponse.json({ ok: true })
         }
       }
@@ -265,7 +265,8 @@ export async function POST(req: NextRequest) {
       const { data: byUsername } = await db.from('users').select('*').eq('telegram_username', username).single()
       if (byUsername) {
         await db.from('users').update({ telegram_chat_id: chatId, telegram_connected: true }).eq('id', byUsername.id)
-        await sendMessage(chatId, `Welcome back${byUsername.name ? `, ${byUsername.name}` : ''}! 🔒\n\nSend /plan to see today's meals.`)
+        const freshUser = { ...byUsername, telegram_chat_id: chatId, telegram_connected: true }
+        await sendWelcomeWithPlan(chatId, freshUser)
         return NextResponse.json({ ok: true })
       }
 
@@ -277,7 +278,7 @@ export async function POST(req: NextRequest) {
       const updatedUser = await getUser(chatId)
 
       if (updatedUser?.onboarding_complete) {
-        await sendMessage(chatId, `Welcome back! 🔒\n\nSend /plan to see today's meals.`)
+        await sendWelcomeWithPlan(chatId, updatedUser)
       } else {
         await sendMessage(
           chatId,
@@ -302,7 +303,7 @@ export async function POST(req: NextRequest) {
         if (phoneUser && phoneUser.id !== stateUser.id) {
           await db.from('users').update({ telegram_chat_id: chatId, telegram_connected: true, telegram_username: username, onboarding_state: { step: 0, data: {} } }).eq('id', phoneUser.id)
           await db.from('users').delete().eq('id', stateUser.id)
-          await sendMessage(chatId, `✅ Account found! Welcome${phoneUser.name ? `, ${phoneUser.name}` : ''} 🔒\n\nSend /plan to see today's meals.`)
+          await sendWelcomeWithPlan(chatId, { ...phoneUser, telegram_chat_id: chatId, telegram_connected: true })
         } else {
           await db.from('users').update({ onboarding_state: { step: 0, data: {} } }).eq('telegram_chat_id', chatId)
           await sendMessage(chatId, `Hmm, couldn't find that number. Try setting up your profile:\n👉 ${process.env.APP_URL}/onboarding`)
@@ -426,6 +427,40 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('[telegram webhook]', error)
     return NextResponse.json({ ok: true })
+  }
+}
+
+// ============================================================
+// WELCOME + PLAN (sent on /start after account link)
+// ============================================================
+async function sendWelcomeWithPlan(chatId: number, user: Record<string, unknown>) {
+  const isMinimal = (user.messaging_mode as string) === 'minimal';
+  const scheduleText = isMinimal
+    ? `☀️ One morning plan + 🌙 one evening summary`
+    : `☀️ Morning summary → meal reminders → post-meal check-ins → 🌙 evening recap`;
+
+  const welcomeText =
+    `🎉 Welcome${user.name ? `, ${user.name}` : ''}! Your plan is ready 🔒\n\n` +
+    `Here's how to use me:\n\n` +
+    `📅 /plan — Today's full meal schedule with macros\n` +
+    `🕐 /today — What's left for the day + progress so far\n` +
+    `📊 /stats — Weekly summary, streak & adherence\n` +
+    `🔄 /swap [meal] — e.g. "swap my dinner" for an alternative\n` +
+    `🔔 /mode — Toggle full vs minimal daily messages\n` +
+    `❓ /help — Show this message again\n\n` +
+    `Every day you'll get:\n${scheduleText}\n\n` +
+    `Here's today 👇`;
+
+  await sendMessage(chatId, welcomeText);
+
+  // Send today's plan
+  if (user.id) {
+    const plan = await getActivePlan(user.id as string);
+    if (plan) {
+      await sendTodayPlanImproved(chatId, plan, user);
+    } else {
+      await sendMessage(chatId, `No meal plan generated yet. Tap */plan* to generate one.`);
+    }
   }
 }
 
