@@ -244,71 +244,67 @@ export async function POST(req: NextRequest) {
 
     // ---- /start ----
     if (messageText.startsWith('/start')) {
-      const payload = messageText.slice('/start'.length).trim()
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload)
+      const token = messageText.slice('/start'.length).trim()
 
-      if (isUUID) {
-        const { data: webUser } = await db
+      // CASE 1: 16-char link token from deep link — primary happy path
+      if (token && token.length === 16 && /^[0-9a-f]+$/i.test(token)) {
+        const { data: tokenUser } = await db
           .from('users')
-          .update({ telegram_chat_id: chatId, telegram_username: username, telegram_connected: true, updated_at: new Date().toISOString() })
-          .eq('id', payload)
-          .select()
+          .select('*')
+          .eq('link_token', token)
+          .gt('link_token_expires_at', new Date().toISOString())
           .single()
 
-        if (webUser) {
-          await sendWelcomeWithPlan(chatId, webUser)
-          return NextResponse.json({ ok: true })
+        if (tokenUser) {
+          await db.from('users').update({
+            telegram_chat_id: chatId,
+            telegram_username: username,
+            telegram_connected: true,
+            link_token: null,
+            link_token_expires_at: null,
+          }).eq('id', tokenUser.id)
+          await sendWelcomeWithPlan(chatId, { ...tokenUser, telegram_chat_id: chatId, telegram_connected: true })
+        } else {
+          await sendMessage(chatId, `This link has expired. Go to your dashboard and tap "Connect Telegram" for a new link:\n👉 ${process.env.APP_URL}/dashboard`)
         }
-      }
-
-      // Try username match (case-insensitive)
-      const { data: byUsername } = await db.from('users').select('*').ilike('telegram_username', username).single()
-      if (byUsername) {
-        await db.from('users').update({ telegram_chat_id: chatId, telegram_connected: true }).eq('id', byUsername.id)
-        const freshUser = { ...byUsername, telegram_chat_id: chatId, telegram_connected: true }
-        await sendWelcomeWithPlan(chatId, freshUser)
         return NextResponse.json({ ok: true })
       }
 
-      // Not found — ask for phone number or create bare record
-      const existingUser = await getUser(chatId)
-      if (!existingUser) {
+      // CASE 2: No token — existing connected user coming back
+      const returningUser = await getUser(chatId)
+      if (returningUser?.onboarding_complete) {
+        const firstName = (returningUser.name as string)?.split(' ')[0] || ''
+        const streak = (returningUser.current_streak as number) || 0
+        await sendMessage(chatId,
+          `Welcome back${firstName ? ` ${firstName}` : ''}! Day ${streak + 1}. 🔒\n\nSend /plan for today's meals.`
+        )
+        return NextResponse.json({ ok: true })
+      }
+
+      // CASE 3: New user found the bot directly — ask for phone number
+      if (!returningUser) {
         await db.from('users').insert({ telegram_chat_id: chatId, telegram_username: username })
       }
-      const updatedUser = await getUser(chatId)
-
-      if (updatedUser?.onboarding_complete) {
-        await sendWelcomeWithPlan(chatId, updatedUser)
-      } else {
-        await sendMessage(
-          chatId,
-          `Hey${username ? ` @${username}` : ''}! 👋\n\n` +
-          `Already signed up at *kanshi.app*? Reply with the phone number you used — I'll find your account instantly.\n\n` +
-          `_New here? Set up your profile first:_\n👉 ${process.env.APP_URL}/onboarding`
-        )
-        await db.from('users').update({ onboarding_state: { step: 'waiting_phone', data: {} } }).eq('telegram_chat_id', chatId)
-      }
+      await sendMessage(chatId,
+        `Hey${username ? ` @${username}` : ''}! 👋\n\n` +
+        `Already signed up on *kanshi.app*? Reply with your 10-digit phone number and I'll link your account.\n\n` +
+        `_New here? Set up your profile first:_\n👉 ${process.env.APP_URL}/onboarding`
+      )
       return NextResponse.json({ ok: true })
     }
 
-    // ---- State: waiting for phone number to match account ----
-    if (stateUser?.onboarding_state?.step === 'waiting_phone') {
-      const phone = messageText.replace(/\D/g, '')
-      if (phone.length >= 10) {
-        const { data: phoneUser } = await db.from('users').select('*').eq('phone_number', phone).single()
-          .then(r => r)
-          || await db.from('users').select('*').eq('phone_number', `+91${phone}`).single()
+    // ---- Phone number detection — links account without token ----
+    const looksLikePhone = (t: string) => { const n = t.replace(/\D/g, '').slice(-10); return n.length === 10 && /^[6-9]/.test(n) }
+    if (looksLikePhone(messageText) && (!stateUser || !stateUser.onboarding_complete)) {
+      const normalized = messageText.replace(/\D/g, '').slice(-10)
+      const { data: phoneUser } = await db.from('users').select('*').eq('phone_number', normalized).single()
 
-        if (phoneUser && phoneUser.id !== stateUser.id) {
-          await db.from('users').update({ telegram_chat_id: chatId, telegram_connected: true, telegram_username: username, onboarding_state: { step: 0, data: {} } }).eq('id', phoneUser.id)
-          await db.from('users').delete().eq('id', stateUser.id)
-          await sendWelcomeWithPlan(chatId, { ...phoneUser, telegram_chat_id: chatId, telegram_connected: true })
-        } else {
-          await db.from('users').update({ onboarding_state: { step: 0, data: {} } }).eq('telegram_chat_id', chatId)
-          await sendMessage(chatId, `Hmm, couldn't find that number. Double-check and try again, or sign up at:\n👉 ${process.env.APP_URL}/onboarding`)
-        }
+      if (phoneUser) {
+        await db.from('users').update({ telegram_chat_id: chatId, telegram_username: username, telegram_connected: true }).eq('id', phoneUser.id)
+        if (stateUser && stateUser.id !== phoneUser.id) await db.from('users').delete().eq('id', stateUser.id)
+        await sendWelcomeWithPlan(chatId, { ...phoneUser, telegram_chat_id: chatId, telegram_connected: true })
       } else {
-        await sendMessage(chatId, `That doesn't look like a valid phone number. Try again or go to:\n👉 ${process.env.APP_URL}/onboarding`)
+        await sendMessage(chatId, `Couldn't find an account with that number. Make sure you used the same number on *kanshi.app*.`)
       }
       return NextResponse.json({ ok: true })
     }

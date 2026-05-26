@@ -27,7 +27,10 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     user: {
+      name: user.name,
       telegram_username: user.telegram_username,
+      telegram_connected: user.telegram_connected || false,
+      link_token: user.link_token || null,
       current_streak: user.current_streak || 0,
       target_kcal: user.target_kcal || 0,
       target_protein_g: user.target_protein_g || 0,

@@ -71,6 +71,15 @@ function toggle<T>(arr: T[], val: T): T[] {
   return arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]
 }
 
+function normalizePhone(input: string): string {
+  return input.replace(/\D/g, '').slice(-10)
+}
+
+function isValidIndianPhone(input: string): boolean {
+  const n = normalizePhone(input)
+  return n.length === 10 && /^[6-9]/.test(n)
+}
+
 export default function OnboardingPage() {
   const router = useRouter()
   const [step, setStep] = useState(1)
@@ -78,6 +87,9 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState('')
   const [error, setError] = useState('')
+  const [planReady, setPlanReady] = useState(false)
+  const [linkToken, setLinkToken] = useState('')
+  const [savedUserId, setSavedUserId] = useState('')
 
   const set = <K extends keyof FormData>(key: K, val: FormData[K]) =>
     setForm(f => ({ ...f, [key]: val }))
@@ -95,7 +107,7 @@ export default function OnboardingPage() {
     if (step === 1) return !!form.goal
     if (step === 3) return !!form.height_cm && !!form.weight_kg && !!form.age && !!form.sex
     if (step === 4) return !!form.activity_level
-    if (step === 9) return !!form.name && !!form.phone_number
+    if (step === 9) return !!form.name && isValidIndianPhone(form.phone_number)
     return true
   }
 
@@ -103,7 +115,7 @@ export default function OnboardingPage() {
     setLoading(true)
     setError('')
     try {
-      const phone = form.phone_number.startsWith('+') ? form.phone_number : `+91${form.phone_number}`
+      const phone = normalizePhone(form.phone_number)
       const payload = {
         name: form.name,
         phone_number: phone,
@@ -136,7 +148,7 @@ export default function OnboardingPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to save')
 
-      // Step 2: Generate plan directly from browser (no server-to-server timeout)
+      // Step 2: Generate plan directly from browser
       setLoadingMessage('Generating your personalised meal plan with AI...')
       const planRes = await fetch('/api/generate-plan', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -145,7 +157,11 @@ export default function OnboardingPage() {
       const planData = await planRes.json()
       if (!planRes.ok) throw new Error(planData.error || 'Plan generation failed')
 
-      router.push(`/dashboard?uid=${data.userId}`)
+      // Show success screen with Telegram connect
+      setSavedUserId(data.userId)
+      setLinkToken(data.linkToken || '')
+      setPlanReady(true)
+      setLoadingMessage('')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong')
       setLoading(false)
@@ -154,6 +170,30 @@ export default function OnboardingPage() {
   }
 
   const bmiInfo = macros ? getBMILabel(macros.bmi) : null
+
+  if (planReady) return (
+    <div className="min-h-screen bg-[#2D4A3E] flex flex-col items-center justify-center px-6 text-white">
+      <div className="text-5xl mb-4">✅</div>
+      <h2 className="font-display text-2xl font-bold mb-2 text-center">Your plan is ready!</h2>
+      <p className="text-white/70 text-center text-sm max-w-xs mb-8">7 days of personalised Indian meals, locked in.</p>
+
+      <div className="w-full max-w-xs space-y-3">
+        <p className="text-white/80 text-sm text-center mb-1">Get daily reminders on Telegram:</p>
+        <a
+          href={linkToken ? `https://t.me/lockinfood_bot?start=${linkToken}` : 'https://t.me/lockinfood_bot'}
+          className="flex items-center justify-center gap-2 w-full bg-white text-[#2D4A3E] font-semibold py-3 rounded-2xl text-sm hover:bg-white/90 transition-colors"
+        >
+          Open @lockinfood_bot →
+        </a>
+        <button
+          onClick={() => router.push(`/dashboard?uid=${savedUserId}`)}
+          className="w-full text-white/50 text-xs py-2 text-center hover:text-white/80 transition-colors"
+        >
+          Skip for now — go to dashboard
+        </button>
+      </div>
+    </div>
+  )
 
   if (loadingMessage) return (
     <div className="min-h-screen bg-[#2D4A3E] flex flex-col items-center justify-center px-6 text-white">
@@ -532,11 +572,22 @@ export default function OnboardingPage() {
               <div>
                 <Label className="mb-2 block">Phone number *</Label>
                 <div className="flex gap-2">
-                  <div className="flex items-center px-3 bg-white border border-[#D8D4CC] rounded-xl text-sm text-[#6B7268] shrink-0">+91</div>
-                  <Input placeholder="9876543210" value={form.phone_number}
-                    onChange={e => set('phone_number', e.target.value.replace(/\D/g, ''))} maxLength={10} className="flex-1" />
+                  <div className="flex items-center px-3 bg-[#F5F3EE] border border-[#D8D4CC] rounded-xl text-sm text-[#6B7268] shrink-0 select-none">+91</div>
+                  <Input
+                    placeholder="9876543210"
+                    value={form.phone_number}
+                    onChange={e => set('phone_number', e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    maxLength={10}
+                    inputMode="numeric"
+                    className="flex-1"
+                  />
                 </div>
-                <p className="text-xs text-[#6B7268] mt-1">Used to connect your Telegram account. Never shared.</p>
+                {form.phone_number.length > 0 && !isValidIndianPhone(form.phone_number) && (
+                  <p className="text-xs text-[#C66B5C] mt-1">Enter a valid 10-digit Indian mobile number (starts with 6–9)</p>
+                )}
+                {isValidIndianPhone(form.phone_number) && (
+                  <p className="text-xs text-[#7BA088] mt-1">✓ Valid number</p>
+                )}
               </div>
               <div>
                 <Label className="mb-2 block">Telegram username (optional)</Label>

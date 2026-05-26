@@ -27,6 +27,7 @@ interface DashboardData {
     name?: string
     telegram_username?: string
     telegram_connected: boolean
+    link_token?: string | null
     current_streak: number
     target_kcal: number
     target_protein_g: number
@@ -257,7 +258,7 @@ function DashboardContent() {
                 <h3 className="font-medium text-ink mb-1">Activate your daily meal messages</h3>
                 <p className="text-sm text-[#6B7268] mb-2">Send <span className="font-semibold text-ink">/start</span> to the bot on Telegram. It will recognise your account and send your welcome message + today&apos;s plan right away.</p>
                 <p className="text-xs text-[#6B7268] mb-3">After that you&apos;ll get meal reminders, post-meal check-ins, and a daily recap.</p>
-                <a href="https://t.me/lockinfood_bot"
+                <a href={user.link_token ? `https://t.me/lockinfood_bot?start=${user.link_token}` : 'https://t.me/lockinfood_bot'}
                   className="inline-flex items-center gap-1.5 bg-[#1A1F1B] text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-[#2D4A3E] transition-colors">
                   Open @lockinfood_bot <ChevronRight className="w-3.5 h-3.5" />
                 </a>
