@@ -152,11 +152,11 @@ export async function POST(req: NextRequest) {
 
     // ---- Callback: mode toggle ----
     if (callbackData.startsWith('mode:')) {
-      const newMode = callbackData.split(':')[1] as 'full' | 'minimal'
+      const newMode = callbackData.split(':')[1] as 'full' | 'summary'
       const cbUser = await getUser(chatId)
       if (cbUser) {
         await db.from('users').update({ messaging_mode: newMode }).eq('id', cbUser.id)
-        const label = newMode === 'minimal' ? 'Minimal (2 messages/day)' : 'Full (10+ messages/day)'
+        const label = newMode === 'summary' ? 'Summary (2 messages/day)' : 'Full (10+ messages/day)'
         await sendMessage(chatId, `✅ Switched to *${label}* mode.\n\nThis will take effect from tomorrow's schedule.`)
       }
       return NextResponse.json({ ok: true })
@@ -280,7 +280,14 @@ export async function POST(req: NextRequest) {
             link_token: null,
             link_token_expires_at: null,
           }).eq('id', tokenUser.id)
-          await sendWelcomeWithPlan(chatId, { ...tokenUser, telegram_chat_id: chatId, telegram_connected: true })
+          const linkedUser = { ...tokenUser, telegram_chat_id: chatId, telegram_connected: true }
+          await sendWelcomeWithPlan(chatId, linkedUser)
+          // Generate today's schedule immediately — don't wait for midnight cron
+          const { data: linkPlan } = await db.from('meal_plans').select('*').eq('user_id', tokenUser.id).eq('is_active', true).limit(1).single()
+          if (linkPlan) {
+            const { generateDailySchedule } = await import('@/lib/scheduler')
+            await generateDailySchedule(linkedUser, linkPlan)
+          }
         } else {
           await sendMessage(chatId, `This link has expired. Go to your dashboard and tap "Connect Telegram" for a new link:\n👉 ${process.env.APP_URL}/dashboard`)
         }
@@ -402,13 +409,28 @@ export async function POST(req: NextRequest) {
     // ---- /mode ----
     if (messageText === '/mode') {
       const currentMode = (user.messaging_mode as string) || 'full'
-      const modeLabel = currentMode === 'minimal' ? 'Minimal (2 messages/day)' : 'Full (10+ messages/day)'
-      const switchTo = currentMode === 'minimal' ? 'full' : 'minimal'
-      const switchLabel = switchTo === 'minimal' ? 'Switch to Minimal' : 'Switch to Full'
+      const isSummary = currentMode === 'summary' || currentMode === 'minimal'
+      const modeLabel = isSummary ? 'Summary (2 messages/day)' : 'Full (10+ messages/day)'
+      const switchTo = isSummary ? 'full' : 'summary'
+      const switchLabel = isSummary ? 'Switch to Full' : 'Switch to Summary'
       await sendButtons(chatId,
-        `*Messaging mode*\n\nCurrent: *${modeLabel}*\n\n_Full — morning summary, meal reminders, post-meal check-ins, evening recap_\n_Minimal — one morning plan + one evening summary_`,
+        `*Messaging mode*\n\nCurrent: *${modeLabel}*\n\n_Full — wake check + meal reminders + check-ins + evening recap_\n_Summary — one morning briefing + one end-of-day summary_`,
         [[{ text: switchLabel, callback_data: `mode:${switchTo}` }]]
       )
+      return NextResponse.json({ ok: true })
+    }
+
+    // ---- Text-based mode preferences ----
+    if (['fewer messages', 'summary only', '/summary'].includes(messageText.toLowerCase())) {
+      await db.from('users').update({ messaging_mode: 'summary' }).eq('id', user.id)
+      await sendMessage(chatId,
+        `Got it. I'll only message you in the morning with your day plan and at night with a summary.\n\nText "full check-ins" anytime to switch back.`)
+      return NextResponse.json({ ok: true })
+    }
+    if (['full check-ins', 'all messages', '/full'].includes(messageText.toLowerCase())) {
+      await db.from('users').update({ messaging_mode: 'full' }).eq('id', user.id)
+      await sendMessage(chatId,
+        `Back to full check-ins — I'll remind you before and after each meal.\n\nText "fewer messages" anytime if it's too much.`)
       return NextResponse.json({ ok: true })
     }
 
@@ -454,10 +476,10 @@ export async function POST(req: NextRequest) {
 // WELCOME + PLAN (sent on /start after account link)
 // ============================================================
 async function sendWelcomeWithPlan(chatId: number, user: Record<string, unknown>) {
-  const isMinimal = (user.messaging_mode as string) === 'minimal';
-  const scheduleText = isMinimal
-    ? `☀️ One morning plan + 🌙 one evening summary`
-    : `☀️ Morning summary → meal reminders → post-meal check-ins → 🌙 evening recap`;
+  const isSummary = ['summary', 'minimal'].includes((user.messaging_mode as string) || '');
+  const scheduleText = isSummary
+    ? `☀️ One morning briefing + 🌙 one end-of-day summary`
+    : `☀️ Wake check → meal reminders → check-ins → 🌙 evening recap`;
 
   const welcomeText =
     `🎉 Welcome${user.name ? `, ${user.name}` : ''}! I'm *Kanshi*, your AI nutrition coach.\n\n` +
@@ -687,10 +709,10 @@ async function sendWeeklyStats(chatId: number, user: Record<string, unknown>) {
 // /help — welcome/help message
 // ============================================================
 async function sendHelpMessage(chatId: number, user: Record<string, unknown>) {
-  const isMinimal = (user.messaging_mode as string) === 'minimal';
-  const scheduleText = isMinimal
-    ? `☀️ One morning plan + 🌙 one evening summary`
-    : `☀️ Morning summary → meal reminders → post-meal check-ins → 🌙 evening recap`;
+  const isSummary = ['summary', 'minimal'].includes((user.messaging_mode as string) || '');
+  const scheduleText = isSummary
+    ? `☀️ One morning briefing + 🌙 one end-of-day summary`
+    : `☀️ Wake check → meal reminders → check-ins → 🌙 evening recap`;
 
   const msg =
     `Here's how to use me:\n\n` +
@@ -699,7 +721,7 @@ async function sendHelpMessage(chatId: number, user: Record<string, unknown>) {
     `📊 /stats — Weekly summary, streak & adherence\n` +
     `🔄 /swap [meal] — e.g. "swap my dinner" to get an alternative\n` +
     `🥗 /pantry — View & update your pantry\n` +
-    `🔔 /mode — Toggle full vs minimal messaging\n` +
+    `🔔 /mode — Toggle full vs summary messaging\n` +
     `❓ /help — Show this message again\n\n` +
     `Every day you'll get:\n${scheduleText}`;
 

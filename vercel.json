@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/dispatch-messages",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/generate-daily-schedule",
       "schedule": "30 18 * * *"
     },
