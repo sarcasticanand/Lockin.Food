@@ -52,3 +52,32 @@ export async function generateChatContent(systemInstruction: string, userMessage
   })
   return response.text ?? ''
 }
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export async function generateChatWithHistory(
+  systemInstruction: string,
+  history: ChatMessage[],
+  userMessage: string
+): Promise<string> {
+  const contents = [
+    ...history.map(m => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text: m.content }],
+    })),
+    { role: 'user', parts: [{ text: userMessage }] },
+  ]
+
+  const response = await ai().models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents,
+    config: {
+      systemInstruction,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  })
+  return response.text ?? ''
+}

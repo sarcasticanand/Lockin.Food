@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerClient } from '@/lib/supabase'
 import { buildSystemPrompt, getFeatureFlags } from '@/lib/prompt-builder'
-import { generateChatContent } from "@/lib/gemini"
+import { generateChatContent, generateChatWithHistory, type ChatMessage } from "@/lib/gemini"
 import { sendMessage, sendTyping, sendButtons, answerCallbackQuery, mealConfirmButtons, pantryAlertButtons } from '@/lib/telegram-helpers'
 
 // ============================================================
@@ -45,6 +45,23 @@ async function getTodayLog(userId: string) {
     .eq('log_date', today)
     .single();
   return data;
+}
+
+async function getConversationHistory(userId: string, limit = 20): Promise<ChatMessage[]> {
+  const today = new Date().toISOString().split('T')[0];
+  const { data } = await getServerClient()
+    .from('conversation_history')
+    .select('role, content')
+    .eq('user_id', userId)
+    .eq('chat_date', today)
+    .order('created_at', { ascending: true })
+    .limit(limit);
+  return (data || []) as ChatMessage[];
+}
+
+async function saveConversationMessage(userId: string, role: 'user' | 'assistant', content: string) {
+  const today = new Date().toISOString().split('T')[0];
+  await getServerClient().from('conversation_history').insert({ user_id: userId, chat_date: today, role, content });
 }
 
 // ============================================================
@@ -319,6 +336,7 @@ export async function POST(req: NextRequest) {
       const user = await getUser(chatId)
       if (user) {
         await Promise.all([
+          db.from('conversation_history').delete().eq('user_id', user.id),
           db.from('scheduled_messages').delete().eq('user_id', user.id),
           db.from('shopping_lists').delete().eq('user_id', user.id),
           db.from('pantry_items').delete().eq('user_id', user.id),
@@ -407,15 +425,22 @@ export async function POST(req: NextRequest) {
 
     // ---- Conversational messages → Gemini ----
     await sendTyping(chatId)
-    const [plan, pantry, todayLog] = await Promise.all([
+    const [plan, pantry, todayLog, history] = await Promise.all([
       getActivePlan(user.id),
       getPantry(user.id),
       getTodayLog(user.id),
+      getConversationHistory(user.id, 20),
     ])
     void getFeatureFlags()
 
+    await saveConversationMessage(user.id, 'user', messageText)
+
     const systemPrompt = await buildSystemPrompt(user, plan, pantry, todayLog)
-    const reply = await generateChatContent(systemPrompt, messageText)
+    const reply = history.length > 0
+      ? await generateChatWithHistory(systemPrompt, history, messageText)
+      : await generateChatContent(systemPrompt, messageText)
+
+    await saveConversationMessage(user.id, 'assistant', reply)
     await sendMessage(chatId, reply)
 
     return NextResponse.json({ ok: true })
@@ -756,11 +781,7 @@ async function handleSubstitutedMeal(chatId: number, user: Record<string, unknow
   const slots = todayPlan?.slots as Array<Record<string, unknown>> | undefined
   const planned = slots?.find(s => s.slot === slot) as Record<string, unknown> | undefined
 
-  const prompt = `The user was supposed to eat: ${planned?.meal || slot}.
-They actually ate: ${dishName}.
-Estimate the macros (kcal, protein_g, carbs_g, fat_g).
-Estimate key ingredients (name, approximate grams).
-Return JSON: { "kcal": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "ingredients": [{"name":"","grams":0}], "comment": "brief suggestion" }`
+  const prompt = `The user was supposed to eat: ${planned?.meal || slot}.\nThey actually ate: ${dishName}.\nEstimate the macros (kcal, protein_g, carbs_g, fat_g).\nEstimate key ingredients (name, approximate grams).\nReturn JSON: { "kcal": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "ingredients": [{"name":"","grams":0}], "comment": "brief suggestion" }`
 
   let estimated: Record<string, unknown> = {}
   try {
