@@ -45,7 +45,7 @@ interface FormData {
   name: string
   phone_number: string
   telegram_username: string
-  messaging_mode: 'full' | 'minimal'
+  messaging_mode: 'full' | 'summary'
 }
 
 const INITIAL: FormData = {
@@ -57,7 +57,7 @@ const INITIAL: FormData = {
   allergies: [], dislikes: [], dislikes_notes: '',
   budget_weekly: 2000, max_cooking_time: '', meal_preps: false,
   wake_time: '07:00', sleep_time: '23:00', name: '', phone_number: '', telegram_username: '',
-  messaging_mode: 'full',
+  messaging_mode: 'full' as const,
 }
 
 const WORKOUT_TYPES = ['Gym / Weight Training', 'Running / Cardio', 'Yoga / Pilates', 'Swimming', 'Sports', 'Walking']
@@ -141,14 +141,12 @@ export default function OnboardingPage() {
         } : {}),
       }
 
-      // Step 1: Save profile
       const res = await fetch('/api/onboarding', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to save')
 
-      // Step 2: Generate plan directly from browser
       setLoadingMessage('Generating your personalised meal plan with AI...')
       const planRes = await fetch('/api/generate-plan', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -157,7 +155,6 @@ export default function OnboardingPage() {
       const planData = await planRes.json()
       if (!planRes.ok) throw new Error(planData.error || 'Plan generation failed')
 
-      // Show success screen with Telegram connect
       setSavedUserId(data.userId)
       setLinkToken(data.linkToken || '')
       setPlanReady(true)
@@ -547,8 +544,8 @@ export default function OnboardingPage() {
                     <div className="text-xs text-[#6B7268]">Morning summary, meal reminders, post-meal check-ins, evening recap (10+ messages)</div>
                   </button>
                   <button
-                    onClick={() => set('messaging_mode', 'minimal')}
-                    className={`p-4 rounded-xl border-2 text-left transition-all duration-200 ${form.messaging_mode === 'minimal' ? 'border-[#2D4A3E] bg-[#2D4A3E]/5' : 'border-[#E8E4DC] bg-white hover:border-[#2D4A3E]/30'}`}
+                    onClick={() => set('messaging_mode', 'summary')}
+                    className={`p-4 rounded-xl border-2 text-left transition-all duration-200 ${form.messaging_mode === 'summary' ? 'border-[#2D4A3E] bg-[#2D4A3E]/5' : 'border-[#E8E4DC] bg-white hover:border-[#2D4A3E]/30'}`}
                   >
                     <div className="font-medium text-sm text-ink mb-1">Minimal — Just essentials</div>
                     <div className="text-xs text-[#6B7268]">One morning plan + one evening summary (2 messages/day)</div>

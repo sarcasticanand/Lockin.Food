@@ -4,9 +4,6 @@ import { buildSystemPrompt, getFeatureFlags } from '@/lib/prompt-builder'
 import { generateChatContent, generateChatWithHistory, type ChatMessage } from "@/lib/gemini"
 import { sendMessage, sendTyping, sendButtons, answerCallbackQuery, mealConfirmButtons, pantryAlertButtons } from '@/lib/telegram-helpers'
 
-// ============================================================
-// DB HELPERS
-// ============================================================
 async function getUser(chatId: number) {
   const { data } = await getServerClient()
     .from('users')
@@ -64,9 +61,6 @@ async function saveConversationMessage(userId: string, role: 'user' | 'assistant
   await getServerClient().from('conversation_history').insert({ user_id: userId, chat_date: today, role, content });
 }
 
-// ============================================================
-// TODAY'S PLAN FORMATTER
-// ============================================================
 const SLOT_LABELS: Record<string, string> = {
   early_morning: '🌅 Early Morning',
   breakfast: '🍳 Breakfast',
@@ -127,9 +121,6 @@ async function sendTodayPlan(chatId: number, plan: Record<string, unknown>, user
   await sendMessage(chatId, msg);
 }
 
-// ============================================================
-// WEBHOOK HANDLER
-// ============================================================
 export async function POST(req: NextRequest) {
   const db = getServerClient()
   try {
@@ -150,19 +141,17 @@ export async function POST(req: NextRequest) {
     if (!chatId) return NextResponse.json({ ok: true })
     if (callbackQueryId) await answerCallbackQuery(callbackQueryId)
 
-    // ---- Callback: mode toggle ----
     if (callbackData.startsWith('mode:')) {
-      const newMode = callbackData.split(':')[1] as 'full' | 'minimal'
+      const newMode = callbackData.split(':')[1] as 'full' | 'summary'
       const cbUser = await getUser(chatId)
       if (cbUser) {
         await db.from('users').update({ messaging_mode: newMode }).eq('id', cbUser.id)
-        const label = newMode === 'minimal' ? 'Minimal (2 messages/day)' : 'Full (10+ messages/day)'
+        const label = newMode === 'summary' ? 'Summary (2 messages/day)' : 'Full (10+ messages/day)'
         await sendMessage(chatId, `✅ Switched to *${label}* mode.\n\nThis will take effect from tomorrow's schedule.`)
       }
       return NextResponse.json({ ok: true })
     }
 
-    // ---- Callback: swap alternative selection ----
     if (callbackData.startsWith('swap:')) {
       const parts = callbackData.split(':')
       const slot = parts[1]
@@ -197,7 +186,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ---- Callback: meal confirmation buttons ----
     if (callbackData.startsWith('confirm:')) {
       const [, slot, action] = callbackData.split(':')
       const user = await getUser(chatId)
@@ -222,7 +210,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ---- Callback: skip nothing ----
     if (callbackData.startsWith('skipnothing:')) {
       const slot = callbackData.split(':')[1]
       const user = await getUser(chatId)
@@ -231,7 +218,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ---- Callback: pantry alert buttons ----
     if (callbackData.startsWith('pantry:')) {
       const [, action, itemName] = callbackData.split(':')
       const user = await getUser(chatId)
@@ -245,11 +231,10 @@ export async function POST(req: NextRequest) {
       } else {
         await sendMessage(chatId, `Got it!`)
       }
-      void pantryAlertButtons // suppress unused warning — called in cron
+      void pantryAlertButtons
       return NextResponse.json({ ok: true })
     }
 
-    // ---- Check bot state (e.g. waiting for meal description after "had something else") ----
     const stateUser = await getUser(chatId)
     if (stateUser?.onboarding_state?.step === 'waiting_meal_desc') {
       const slot = stateUser.onboarding_state.data?.slot as string
@@ -259,11 +244,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ---- /start ----
     if (messageText.startsWith('/start')) {
       const token = messageText.slice('/start'.length).trim()
 
-      // CASE 1: 16-char link token from deep link — primary happy path
       if (token && token.length === 16 && /^[0-9a-f]+$/i.test(token)) {
         const { data: tokenUser } = await db
           .from('users')
@@ -280,14 +263,19 @@ export async function POST(req: NextRequest) {
             link_token: null,
             link_token_expires_at: null,
           }).eq('id', tokenUser.id)
-          await sendWelcomeWithPlan(chatId, { ...tokenUser, telegram_chat_id: chatId, telegram_connected: true })
+          const linkedUser = { ...tokenUser, telegram_chat_id: chatId, telegram_connected: true }
+          await sendWelcomeWithPlan(chatId, linkedUser)
+          const { data: linkPlan } = await db.from('meal_plans').select('*').eq('user_id', tokenUser.id).eq('is_active', true).limit(1).single()
+          if (linkPlan) {
+            const { generateDailySchedule } = await import('@/lib/scheduler')
+            await generateDailySchedule(linkedUser, linkPlan)
+          }
         } else {
           await sendMessage(chatId, `This link has expired. Go to your dashboard and tap "Connect Telegram" for a new link:\n👉 ${process.env.APP_URL}/dashboard`)
         }
         return NextResponse.json({ ok: true })
       }
 
-      // CASE 2: No token — existing connected user coming back
       const returningUser = await getUser(chatId)
       if (returningUser?.onboarding_complete) {
         const firstName = (returningUser.name as string)?.split(' ')[0] || ''
@@ -298,7 +286,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
       }
 
-      // CASE 3: New user found the bot directly — ask for phone number
       if (!returningUser) {
         await db.from('users').insert({ telegram_chat_id: chatId, telegram_username: username })
       }
@@ -310,7 +297,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ---- Phone number detection — links account without token ----
     const looksLikePhone = (t: string) => { const n = t.replace(/\D/g, '').slice(-10); return n.length === 10 && /^[6-9]/.test(n) }
     if (looksLikePhone(messageText) && (!stateUser || !stateUser.onboarding_complete)) {
       const normalized = messageText.replace(/\D/g, '').slice(-10)
@@ -326,7 +312,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ---- /deletedata ----
     if (messageText === '/deletedata') {
       await sendMessage(chatId, `This will permanently delete your profile, meal plans, pantry, and all history.\n\nType *DELETE* to confirm.`)
       return NextResponse.json({ ok: true })
@@ -349,14 +334,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ---- Guard: require completed onboarding ----
     const user = await getUser(chatId)
     if (!user || !user.onboarding_complete) {
       await sendMessage(chatId, `Complete your profile first:\n👉 ${process.env.APP_URL}/onboarding`)
       return NextResponse.json({ ok: true })
     }
 
-    // ---- /plan ----
     if (messageText === '/plan') {
       let plan = await getActivePlan(user.id)
       if (!plan) {
@@ -376,7 +359,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ---- /today ----
     if (messageText === '/today') {
       const [plan, todayLog] = await Promise.all([getActivePlan(user.id), getTodayLog(user.id)])
       if (!plan) {
@@ -387,32 +369,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ---- /stats ----
     if (messageText === '/stats') {
       await sendWeeklyStats(chatId, user)
       return NextResponse.json({ ok: true })
     }
 
-    // ---- /help ----
     if (messageText === '/help') {
       await sendHelpMessage(chatId, user)
       return NextResponse.json({ ok: true })
     }
 
-    // ---- /mode ----
     if (messageText === '/mode') {
       const currentMode = (user.messaging_mode as string) || 'full'
-      const modeLabel = currentMode === 'minimal' ? 'Minimal (2 messages/day)' : 'Full (10+ messages/day)'
-      const switchTo = currentMode === 'minimal' ? 'full' : 'minimal'
-      const switchLabel = switchTo === 'minimal' ? 'Switch to Minimal' : 'Switch to Full'
+      const isSummary = currentMode === 'summary' || currentMode === 'minimal'
+      const modeLabel = isSummary ? 'Summary (2 messages/day)' : 'Full (10+ messages/day)'
+      const switchTo = isSummary ? 'full' : 'summary'
+      const switchLabel = isSummary ? 'Switch to Full' : 'Switch to Summary'
       await sendButtons(chatId,
-        `*Messaging mode*\n\nCurrent: *${modeLabel}*\n\n_Full — morning summary, meal reminders, post-meal check-ins, evening recap_\n_Minimal — one morning plan + one evening summary_`,
+        `*Messaging mode*\n\nCurrent: *${modeLabel}*\n\n_Full — wake check + meal reminders + check-ins + evening recap_\n_Summary — one morning briefing + one end-of-day summary_`,
         [[{ text: switchLabel, callback_data: `mode:${switchTo}` }]]
       )
       return NextResponse.json({ ok: true })
     }
 
-    // ---- /swap [slot] ----
+    if (['fewer messages', 'summary only', '/summary'].includes(messageText.toLowerCase())) {
+      await db.from('users').update({ messaging_mode: 'summary' }).eq('id', user.id)
+      await sendMessage(chatId,
+        `Got it. I'll only message you in the morning with your day plan and at night with a summary.\n\nText "full check-ins" anytime to switch back.`)
+      return NextResponse.json({ ok: true })
+    }
+    if (['full check-ins', 'all messages', '/full'].includes(messageText.toLowerCase())) {
+      await db.from('users').update({ messaging_mode: 'full' }).eq('id', user.id)
+      await sendMessage(chatId,
+        `Back to full check-ins — I'll remind you before and after each meal.\n\nText "fewer messages" anytime if it's too much.`)
+      return NextResponse.json({ ok: true })
+    }
+
     if (messageText.startsWith('/swap') || /\b(swap|change)\s+my\s+\w+/i.test(messageText)) {
       const plan = await getActivePlan(user.id)
       if (!plan) {
@@ -423,7 +415,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ---- Conversational messages → Gemini ----
     await sendTyping(chatId)
     const [plan, pantry, todayLog, history] = await Promise.all([
       getActivePlan(user.id),
@@ -450,14 +441,11 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ============================================================
-// WELCOME + PLAN (sent on /start after account link)
-// ============================================================
 async function sendWelcomeWithPlan(chatId: number, user: Record<string, unknown>) {
-  const isMinimal = (user.messaging_mode as string) === 'minimal';
-  const scheduleText = isMinimal
-    ? `☀️ One morning plan + 🌙 one evening summary`
-    : `☀️ Morning summary → meal reminders → post-meal check-ins → 🌙 evening recap`;
+  const isSummary = ['summary', 'minimal'].includes((user.messaging_mode as string) || '');
+  const scheduleText = isSummary
+    ? `☀️ One morning briefing + 🌙 one end-of-day summary`
+    : `☀️ Wake check → meal reminders → check-ins → 🌙 evening recap`;
 
   const welcomeText =
     `🎉 Welcome${user.name ? `, ${user.name}` : ''}! I'm *Kanshi*, your AI nutrition coach.\n\n` +
@@ -473,7 +461,6 @@ async function sendWelcomeWithPlan(chatId: number, user: Record<string, unknown>
 
   await sendMessage(chatId, welcomeText);
 
-  // Send today's plan
   if (user.id) {
     const plan = await getActivePlan(user.id as string);
     if (plan) {
@@ -484,9 +471,6 @@ async function sendWelcomeWithPlan(chatId: number, user: Record<string, unknown>
   }
 }
 
-// ============================================================
-// HELPERS
-// ============================================================
 async function logMealConfirmed(db: ReturnType<typeof getServerClient>, user: Record<string, unknown>, slot: string) {
   const today = new Date().toISOString().split('T')[0]
   const plan = await getActivePlan(user.id as string)
@@ -530,9 +514,6 @@ async function logMealSkipped(db: ReturnType<typeof getServerClient>, user: Reco
   await db.from('daily_logs').upsert({ user_id: user.id, log_date: today, meals_skipped }, { onConflict: 'user_id,log_date' })
 }
 
-// ============================================================
-// IMPROVED /plan FORMATTER
-// ============================================================
 async function sendTodayPlanImproved(chatId: number, plan: Record<string, unknown>, user: Record<string, unknown>) {
   const today = new Date();
   const dayIndex = today.getDay();
@@ -590,9 +571,6 @@ async function sendTodayPlanImproved(chatId: number, plan: Record<string, unknow
   await sendMessage(chatId, msg);
 }
 
-// ============================================================
-// /today — progress so far
-// ============================================================
 async function sendTodayProgress(chatId: number, plan: Record<string, unknown>, user: Record<string, unknown>, todayLog: Record<string, unknown> | null) {
   const today = new Date();
   const dayIndex = today.getDay();
@@ -643,9 +621,6 @@ async function sendTodayProgress(chatId: number, plan: Record<string, unknown>, 
   await sendMessage(chatId, msg);
 }
 
-// ============================================================
-// /stats — weekly summary
-// ============================================================
 async function sendWeeklyStats(chatId: number, user: Record<string, unknown>) {
   const db = getServerClient();
   const today = new Date();
@@ -683,14 +658,11 @@ async function sendWeeklyStats(chatId: number, user: Record<string, unknown>) {
   await sendMessage(chatId, msg);
 }
 
-// ============================================================
-// /help — welcome/help message
-// ============================================================
 async function sendHelpMessage(chatId: number, user: Record<string, unknown>) {
-  const isMinimal = (user.messaging_mode as string) === 'minimal';
-  const scheduleText = isMinimal
-    ? `☀️ One morning plan + 🌙 one evening summary`
-    : `☀️ Morning summary → meal reminders → post-meal check-ins → 🌙 evening recap`;
+  const isSummary = ['summary', 'minimal'].includes((user.messaging_mode as string) || '');
+  const scheduleText = isSummary
+    ? `☀️ One morning briefing + 🌙 one end-of-day summary`
+    : `☀️ Wake check → meal reminders → check-ins → 🌙 evening recap`;
 
   const msg =
     `Here's how to use me:\n\n` +
@@ -699,22 +671,17 @@ async function sendHelpMessage(chatId: number, user: Record<string, unknown>) {
     `📊 /stats — Weekly summary, streak & adherence\n` +
     `🔄 /swap [meal] — e.g. "swap my dinner" to get an alternative\n` +
     `🥗 /pantry — View & update your pantry\n` +
-    `🔔 /mode — Toggle full vs minimal messaging\n` +
+    `🔔 /mode — Toggle full vs summary messaging\n` +
     `❓ /help — Show this message again\n\n` +
     `Every day you'll get:\n${scheduleText}`;
 
   await sendMessage(chatId, msg);
 }
 
-// ============================================================
-// /swap — suggest alternatives via Gemini
-// ============================================================
 async function handleSwapRequest(chatId: number, user: Record<string, unknown>, plan: Record<string, unknown>, messageText: string) {
   const db = getServerClient();
-  // Extract slot from message: /swap dinner, /swap lunch, "swap my dinner", etc.
   const slotMatch = messageText.match(/\b(early_morning|breakfast|mid_morning|lunch|evening_snack|dinner|pre_bed|morning|snack|evening)\b/i);
   let slotName = slotMatch?.[1]?.toLowerCase() || '';
-  // Normalize aliases
   const aliasMap: Record<string, string> = { morning: 'breakfast', snack: 'evening_snack', evening: 'dinner' };
   if (aliasMap[slotName]) slotName = aliasMap[slotName];
 
@@ -760,7 +727,6 @@ async function handleSwapRequest(chatId: number, user: Record<string, unknown>, 
     return;
   }
 
-  // Store alternatives in user state for callback retrieval
   await db.from('users').update({
     onboarding_state: { step: 'waiting_swap', data: { swap_alternatives: alternatives, swap_slot: slotName } },
   }).eq('id', user.id);
