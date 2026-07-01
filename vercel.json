@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/cron/morning",
+      "path": "/api/cron/morning-briefing",
       "schedule": "30 1 * * *"
     },
     {

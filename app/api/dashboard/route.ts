@@ -23,10 +23,15 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   const dayIndex = new Date().getDay();
+  const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const dayName = DAY_NAMES[dayIndex];
+  const workoutDays: string[] = (user.workout_days as string[]) || [];
+  const todayIsWorkout = workoutDays.includes(dayName);
   const todayPlan = plan?.plan_data?.days?.[dayIndex];
 
   return NextResponse.json({
     user: {
+      id: user.id,
       telegram_username: user.telegram_username,
       current_streak: user.current_streak || 0,
       target_kcal: user.target_kcal || 0,
@@ -35,6 +40,8 @@ export async function GET(req: NextRequest) {
       target_fat_g: user.target_fat_g || 0,
     },
     todaySlots: todayPlan?.slots || null,
+    todayIsWorkout,
+    weekPlan: plan?.plan_data?.days || null,
     log: {
       kcal: { current: log?.total_kcal || 0, target: user.target_kcal || 2000 },
       protein: { current: log?.total_protein_g || 0, target: user.target_protein_g || 150 },

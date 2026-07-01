@@ -111,6 +111,32 @@ async function sendTodayPlan(chatId: number, plan: Record<string, unknown>, user
 }
 
 // ============================================================
+// PENDING NOTIFICATION DELIVERY
+// ============================================================
+async function deliverPendingNotifications(
+  chatId: number,
+  userId: string,
+  db: ReturnType<typeof getServerClient>,
+) {
+  try {
+    const { data: pending } = await db
+      .from('pending_notifications')
+      .select('*')
+      .eq('user_identifier', userId)
+      .eq('delivered', false)
+      .order('created_at', { ascending: true });
+
+    for (const n of pending || []) {
+      await sendMessage(chatId, n.message as string);
+      await db.from('pending_notifications').update({ delivered: true }).eq('id', n.id);
+      await new Promise(r => setTimeout(r, 100));
+    }
+  } catch (e) {
+    console.error('[deliverPendingNotifications]', e);
+  }
+}
+
+// ============================================================
 // WEBHOOK HANDLER
 // ============================================================
 export async function POST(req: NextRequest) {
@@ -151,9 +177,37 @@ export async function POST(req: NextRequest) {
           .single();
 
         if (webUser) {
+          await deliverPendingNotifications(chatId, webUser.id, db);
           await sendMessage(chatId,
             `✅ Account linked! Welcome ${username || 'there'} 🔒\n\n` +
             `Your 7-day meal plan is ready.\nSend /plan to see today's meals.`
+          );
+          return NextResponse.json({ ok: true });
+        }
+      }
+
+      // Username-based lookup — user provided @username during web onboarding
+      if (username) {
+        const cleanUsername = username.replace('@', '');
+        const { data: webUser } = await db
+          .from('users')
+          .select('*')
+          .eq('telegram_username', cleanUsername)
+          .is('telegram_chat_id', null)
+          .single();
+
+        if (webUser) {
+          await db.from('users').update({
+            telegram_chat_id: chatId,
+            updated_at: new Date().toISOString(),
+          }).eq('id', webUser.id);
+
+          await deliverPendingNotifications(chatId, webUser.id, db);
+          await sendMessage(chatId,
+            `✅ Account linked! Hey @${cleanUsername} 🔒\n\n` +
+            `Your meal plan is ready on the web:\n` +
+            `👉 ${process.env.APP_URL}/dashboard?uid=${webUser.id}\n\n` +
+            `Send /plan to see today's meals here too.`
           );
           return NextResponse.json({ ok: true });
         }

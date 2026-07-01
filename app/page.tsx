@@ -26,7 +26,7 @@ export default function LandingPage() {
           className="inline-block text-sm font-medium px-4 py-1.5 rounded-full mb-6"
           style={{ backgroundColor: "rgba(45,74,62,0.1)", color: "#2D4A3E" }}
         >
-          AI nutrition coaching on Telegram
+          AI nutrition coaching that actually works
         </div>
         <h1
           className="text-5xl md:text-6xl font-bold leading-tight mb-6"
@@ -37,9 +37,7 @@ export default function LandingPage() {
           <span style={{ color: "#2D4A3E" }}>locked in.</span>
         </h1>
         <p className="text-lg max-w-xl mx-auto mb-10 leading-relaxed" style={{ color: "#6B7268" }}>
-          Lockin plans your meals, tracks your macros, manages your pantry, and plans your
-          workouts — all through a simple Telegram chat. Like having a nutrition coach in
-          your pocket.
+          Lockin plans your meals, tracks your macros, and manages your pantry — all in one clean web dashboard. Connect Telegram for daily nudges, or use the web. It works either way.
         </p>
         <div className="flex justify-center">
           <Link
@@ -78,8 +76,8 @@ export default function LandingPage() {
               },
               {
                 step: "03",
-                title: "Chat on Telegram",
-                desc: "Ask anything. Swap meals, log food, get workouts, check macros, build a shopping list.",
+                title: "Daily nudges (optional)",
+                desc: "Connect Telegram for daily morning briefings, meal reminders, and check-ins. Or just use the dashboard — it's all there.",
                 emoji: "💬",
               },
             ].map((item) => (

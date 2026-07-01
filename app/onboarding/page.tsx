@@ -47,7 +47,7 @@ interface Profile {
   sleep_time: string;
 }
 
-const TOTAL_STEPS = 11;
+const TOTAL_STEPS = 10;
 
 const FOOD_STYLE_CHIPS = [
   "North Indian", "South Indian", "Bengali", "Gujarati",
@@ -170,6 +170,7 @@ function OnboardingContent() {
 
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [loadingText, setLoadingText] = useState("Saving your profile...");
   const [submitError, setSubmitError] = useState("");
   const [computedMacros, setComputedMacros] = useState<ReturnType<typeof calculateMacros> | null>(null);
   const [saved, setSaved] = useState(false);
@@ -218,36 +219,12 @@ function OnboardingContent() {
     setProfile(p => ({ ...p, [key]: value }));
   }
 
-  // Poll for plan after save (Gemini takes ~20-30 seconds)
-  useEffect(() => {
-    if (!planLoading || !savedUserId || weekPlan) return;
-    let attempts = 0;
-    const interval = setInterval(async () => {
-      attempts++;
-      try {
-        const res = await fetch(`/api/plan?uid=${savedUserId}`);
-        const data = await res.json();
-        if (data.days?.length) {
-          setWeekPlan(data.days as Record<string, unknown>[]);
-          setPlanLoading(false);
-          clearInterval(interval);
-        }
-      } catch { /* ignore */ }
-      if (attempts >= 12) {
-        setPlanLoading(false);
-        clearInterval(interval);
-      }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [planLoading, savedUserId, weekPlan]);
-
   function canAdvance(): boolean {
     switch (step) {
       case 1: return profile.goal !== null;
       case 2: return profile.height_cm > 0 && profile.weight_kg > 0 && profile.age > 0 && profile.sex !== null;
       case 3: return profile.activity_level !== null;
       case 8: return profile.max_cooking_time !== null;
-      case 10: return true; // contact step is optional
       default: return true;
     }
   }
@@ -278,6 +255,7 @@ function OnboardingContent() {
     if (!computedMacros) return;
     setSubmitError("");
     setSubmitting(true);
+    setLoadingText("Saving your profile...");
 
     try {
       const res = await fetch("/api/onboarding", {
@@ -312,6 +290,8 @@ function OnboardingContent() {
           meal_preps: profile.meal_preps,
           wake_time: profile.wake_time,
           sleep_time: profile.sleep_time,
+          phone: profile.phone || null,
+          telegram_username: profile.telegram_username || null,
           bmi: computedMacros.bmi,
           bmr: computedMacros.bmr,
           tdee: computedMacros.tdee,
@@ -320,8 +300,6 @@ function OnboardingContent() {
           target_carbs_g: computedMacros.target_carbs_g,
           target_fat_g: computedMacros.target_fat_g,
           onboarding_complete: true,
-          phone: profile.phone || null,
-          telegram_username: profile.telegram_username || null,
         }),
       });
 
@@ -329,32 +307,22 @@ function OnboardingContent() {
 
       if (!res.ok || !data.userId) {
         setSubmitError(data.error || "Failed to save your profile. Please try again.");
+        setSubmitting(false);
         return;
       }
 
-      setSavedUserId(data.userId);
-      setSaved(true);
+      setLoadingText("Generating your meal plan...");
+      // Plan is already being generated server-side (awaited in /api/onboarding)
+      // Give it a moment then redirect
+      await new Promise(r => setTimeout(r, 1500));
 
-      // Open Telegram bot automatically
-      window.open("https://t.me/kanshi_bot", "_blank");
+      setLoadingText("Opening your dashboard...");
+      await new Promise(r => setTimeout(r, 500));
 
-      // Fetch the generated plan (may take 30s — show loading state)
-      setPlanLoading(true);
-      try {
-        const planRes = await fetch(`/api/plan?uid=${data.userId}`);
-        const planData = await planRes.json();
-        if (planData.days?.length) {
-          setWeekPlan(planData.days as Record<string, unknown>[]);
-        }
-      } catch {
-        // Plan will show loading state; user can check Telegram
-      } finally {
-        setPlanLoading(false);
-      }
+      window.location.href = `/dashboard?uid=${data.userId}`;
     } catch (e) {
       console.error("Submit error:", e);
       setSubmitError("Something went wrong. Please try again.");
-    } finally {
       setSubmitting(false);
     }
   }
@@ -775,50 +743,29 @@ function OnboardingContent() {
                     className="w-full border rounded-xl px-4 py-3 text-sm outline-none" style={{ borderColor: "#E8E4DC" }} />
                 </div>
               </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block" style={{ color: "#1A1F1B" }}>
+                  Telegram username <span className="font-normal" style={{ color: "#9BA89A" }}>(optional)</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm" style={{ color: "#9BA89A" }}>@</span>
+                  <input type="text"
+                    value={profile.telegram_username}
+                    onChange={e => update("telegram_username", e.target.value.replace(/^@+/, ''))}
+                    placeholder="yourusername"
+                    className="w-full border rounded-xl pl-8 pr-4 py-3 text-sm outline-none"
+                    style={{ borderColor: "#E8E4DC" }} />
+                </div>
+                <p className="text-xs mt-1.5" style={{ color: "#6B7268" }}>
+                  For daily meal reminders. Telegram → Settings → Username. No spam, ever.
+                </p>
+              </div>
             </div>
           </StepCard>
         )}
 
-        {/* ── Step 10: Contact / Telegram ── */}
-        {step === 10 && (
-          <StepCard title="How should we reach you?" subtitle="We'll send meal reminders and check-ins. Both fields are optional.">
-            <div className="space-y-4">
-              <div>
-                <label className="text-sm font-medium mb-1 block" style={{ color: "#1A1F1B" }}>
-                  📱 Phone number
-                </label>
-                <input
-                  type="tel"
-                  placeholder="+91 98765 43210"
-                  value={profile.phone}
-                  onChange={e => update("phone", e.target.value)}
-                  className="w-full border rounded-xl px-4 py-3 text-sm outline-none"
-                  style={{ borderColor: "#E8E4DC" }}
-                />
-                <p className="text-xs mt-1" style={{ color: "#6B7268" }}>We'll send you a link to connect with the Telegram bot.</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1 block" style={{ color: "#1A1F1B" }}>
-                  ✈️ Telegram username
-                </label>
-                <input
-                  type="text"
-                  placeholder="@yourhandle"
-                  value={profile.telegram_username}
-                  onChange={e => update("telegram_username", e.target.value.replace(/^@+/, ''))}
-                  className="w-full border rounded-xl px-4 py-3 text-sm outline-none"
-                  style={{ borderColor: "#E8E4DC" }}
-                />
-              </div>
-              <p className="text-xs px-3 py-2 rounded-lg" style={{ backgroundColor: "#FAF8F3", color: "#6B7268" }}>
-                You can also skip this and connect Telegram after — your plan will still be visible here.
-              </p>
-            </div>
-          </StepCard>
-        )}
-
-        {/* ── Step 11: Confirm targets ── */}
-        {step === 11 && computedMacros && !saved && (
+        {/* ── Step 10: Confirm targets ── */}
+        {step === 10 && computedMacros && !saved && (
           <div className="space-y-4">
             <div className="rounded-2xl p-8 text-center" style={{ backgroundColor: "#2D4A3E", color: "#FFFFFF" }}>
               <div className="text-4xl font-bold mb-1" style={{ fontFamily: "Fraunces, Georgia, serif" }}>
@@ -872,13 +819,13 @@ function OnboardingContent() {
             <button onClick={handleSubmit} disabled={submitting}
               className="w-full py-4 rounded-2xl font-semibold text-white transition-colors"
               style={{ backgroundColor: submitting ? "#5A7A6B" : "#2D4A3E" }}>
-              {submitting ? "Saving & generating your plan..." : "Save & generate my plan →"}
+              {submitting ? loadingText : "Save & generate my plan →"}
             </button>
           </div>
         )}
 
-        {/* ── Step 11: Success dashboard (after save) ── */}
-        {step === 11 && computedMacros && saved && (() => {
+        {/* ── Step 10: Success dashboard (after save) ── */}
+        {step === 10 && computedMacros && saved && (() => {
           const deficit = computedMacros.tdee - computedMacros.target_kcal;
           const weeklyLossKg = Math.min(deficit > 0 ? (deficit * 7) / 7700 : 0, 1.0);
           const weeksToGoal = weeklyLossKg > 0 ? Math.ceil(profile.target_kg / weeklyLossKg) : profile.target_weeks;
@@ -1161,7 +1108,7 @@ function OnboardingContent() {
             <button type="button" onClick={handleNext} disabled={!canAdvance()}
               className="flex-1 py-4 rounded-2xl font-semibold text-white transition-colors"
               style={{ backgroundColor: canAdvance() ? "#2D4A3E" : "#B0BDB8" }}>
-              {step === TOTAL_STEPS - 1 ? "Calculate my targets →" : step === 10 ? "Continue (optional) →" : "Continue →"}
+              {step === TOTAL_STEPS - 1 ? "Calculate my targets →" : "Continue →"}
             </button>
           </div>
         )}
