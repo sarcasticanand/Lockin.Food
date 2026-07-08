@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
-import { ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react'
+import { ChevronDown, ChevronUp, ArrowLeft, RefreshCw } from 'lucide-react'
 import BottomNav from '@/components/BottomNav'
 
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -35,8 +35,63 @@ interface DayPlan {
   }>
 }
 
-function MealCard({ slot }: { slot: DayPlan['slots'][number] }) {
+interface Alternative {
+  meal: string
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  reason: string
+}
+
+function MealCard({ slot, uid, dayIndex, onSwapped }: {
+  slot: DayPlan['slots'][number]
+  uid: string
+  dayIndex: number
+  onSwapped: () => void
+}) {
   const [expanded, setExpanded] = useState(false)
+  const [swapOpen, setSwapOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [alternatives, setAlternatives] = useState<Alternative[] | null>(null)
+  const [error, setError] = useState('')
+
+  async function loadAlternatives() {
+    setSwapOpen(true)
+    setBusy(true)
+    setError('')
+    try {
+      const res = await fetch('/api/swap-meal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: uid, dayIndex, slot: slot.slot }),
+      })
+      const d = await res.json()
+      if (!res.ok || !d.alternatives?.length) setError('Could not load alternatives. Try again.')
+      else setAlternatives(d.alternatives)
+    } catch {
+      setError('Could not load alternatives. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function applySwap(alt: Alternative) {
+    setBusy(true)
+    try {
+      await fetch('/api/swap-meal', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: uid, dayIndex, slot: slot.slot, alternative: alt }),
+      })
+      setSwapOpen(false)
+      setAlternatives(null)
+      onSwapped()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="bg-white rounded-[16px] shadow-[0_2px_16px_rgba(0,0,0,0.06)] overflow-hidden">
       <button className="w-full p-4 text-left flex items-start gap-3" onClick={() => setExpanded(e => !e)}>
@@ -50,14 +105,19 @@ function MealCard({ slot }: { slot: DayPlan['slots'][number] }) {
           expanded ? <ChevronUp className="w-4 h-4 text-[#6B7268] shrink-0 mt-1" /> : <ChevronDown className="w-4 h-4 text-[#6B7268] shrink-0 mt-1" />
         )}
       </button>
-      {expanded && slot.ingredients && (
+
+      {expanded && (
         <div className="px-4 pb-4 pt-0 border-t border-[#F0EDE6]">
-          <div className="text-xs font-medium text-[#6B7268] mb-2 mt-3">Ingredients</div>
-          <div className="flex flex-wrap gap-1.5">
-            {slot.ingredients.map((ing, i) => (
-              <span key={i} className="text-xs bg-[#F0EDE6] text-[#6B7268] px-2 py-0.5 rounded-full">{ing}</span>
-            ))}
-          </div>
+          {slot.ingredients && slot.ingredients.length > 0 && (
+            <>
+              <div className="text-xs font-medium text-[#6B7268] mb-2 mt-3">Ingredients</div>
+              <div className="flex flex-wrap gap-1.5">
+                {slot.ingredients.map((ing, i) => (
+                  <span key={i} className="text-xs bg-[#F0EDE6] text-[#6B7268] px-2 py-0.5 rounded-full">{ing}</span>
+                ))}
+              </div>
+            </>
+          )}
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             {[['Protein', slot.protein_g, 'g'], ['Carbs', slot.carbs_g, 'g'], ['Fat', slot.fat_g, 'g']].map(([l, v, u]) => (
               <div key={String(l)} className="bg-[#F5F3EE] rounded-[16px] p-2">
@@ -66,6 +126,27 @@ function MealCard({ slot }: { slot: DayPlan['slots'][number] }) {
               </div>
             ))}
           </div>
+
+          {!swapOpen ? (
+            <button onClick={loadAlternatives}
+              className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-[#2D4A3E] border border-[#E8E4DC] rounded-full px-3 py-1.5 hover:border-[#2D4A3E] transition-colors">
+              <RefreshCw className="w-3 h-3" /> Swap this meal
+            </button>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {busy && !alternatives && <p className="text-xs text-[#6B7268]">Finding alternatives…</p>}
+              {error && <p className="text-xs text-red-500">{error}</p>}
+              {alternatives?.map((alt, i) => (
+                <button key={i} onClick={() => applySwap(alt)} disabled={busy}
+                  className="w-full text-left px-3 py-2.5 rounded-[12px] border border-[#E8E4DC] hover:border-[#2D4A3E] transition-colors disabled:opacity-50">
+                  <span className="text-sm font-medium text-ink block">{alt.meal}</span>
+                  <span className="text-xs text-[#6B7268]">{alt.kcal} kcal · {alt.protein_g}g protein — {alt.reason}</span>
+                </button>
+              ))}
+              <button onClick={() => { setSwapOpen(false); setAlternatives(null); setError('') }}
+                className="text-xs text-[#6B7268] underline">Keep current meal</button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -86,6 +167,14 @@ function PlanContent() {
       .then(d => setDays(d.days || []))
       .finally(() => setLoading(false))
   }, [uid])
+
+  async function refetchPlan() {
+    if (!uid) return
+    try {
+      const d = await fetch(`/api/plan?uid=${uid}`).then(r => r.json())
+      setDays(d.days || [])
+    } catch { /* keep current */ }
+  }
 
   if (!uid) return <div className="p-5 text-[#6B7268]">No user ID.</div>
   if (loading) return (
@@ -146,7 +235,7 @@ function PlanContent() {
                 </div>
                 <div className="space-y-2">
                   {(activeData.slots || []).map((slot, j) => (
-                    <MealCard key={j} slot={slot} />
+                    <MealCard key={j} slot={slot} uid={uid} dayIndex={activeData.day_index ?? activeIndex} onSwapped={refetchPlan} />
                   ))}
                 </div>
               </>

@@ -38,6 +38,8 @@ export async function GET(req: NextRequest) {
       target_fat_g: user.target_fat_g || 0,
     },
     todaySlots: todayPlan?.slots || null,
+    eatenSlots: ((log?.meals_eaten as Array<{ slot?: string }>) || []).map(m => m.slot).filter(Boolean),
+    skippedSlots: (log?.meals_skipped as string[]) || [],
     log: {
       kcal: { current: log?.total_kcal || 0, target: user.target_kcal || 2000 },
       protein: { current: log?.total_protein_g || 0, target: user.target_protein_g || 150 },

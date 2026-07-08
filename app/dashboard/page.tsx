@@ -41,6 +41,8 @@ interface DashboardData {
     kcal: number
     protein_g: number
   }> | null
+  eatenSlots: string[]
+  skippedSlots: string[]
   log: {
     kcal: { current: number; target: number }
     protein: { current: number; target: number }
@@ -58,6 +60,128 @@ const SLOT_LABELS: Record<string, string> = {
   evening_snack: 'Evening Snack',
   dinner: 'Dinner',
   pre_bed: 'Pre-Bed',
+}
+
+interface Alternative {
+  meal: string
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  reason: string
+}
+
+function TodayMealCard({ slot, uid, status, onChanged }: {
+  slot: NonNullable<DashboardData['todaySlots']>[number]
+  uid: string
+  status: 'pending' | 'eaten' | 'skipped'
+  onChanged: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [alternatives, setAlternatives] = useState<Alternative[] | null>(null)
+  const [swapError, setSwapError] = useState('')
+
+  async function logMeal(action: 'eaten' | 'skipped') {
+    setBusy(true)
+    try {
+      await fetch('/api/log-meal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: uid, slot: slot.slot, action }),
+      })
+      onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function loadAlternatives() {
+    setBusy(true)
+    setSwapError('')
+    try {
+      const res = await fetch('/api/swap-meal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: uid, dayIndex: new Date().getDay(), slot: slot.slot }),
+      })
+      const d = await res.json()
+      if (!res.ok || !d.alternatives?.length) {
+        setSwapError('Could not load alternatives. Try again.')
+      } else {
+        setAlternatives(d.alternatives)
+      }
+    } catch {
+      setSwapError('Could not load alternatives. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function applySwap(alt: Alternative) {
+    setBusy(true)
+    try {
+      await fetch('/api/swap-meal', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: uid, dayIndex: new Date().getDay(), slot: slot.slot, alternative: alt }),
+      })
+      setAlternatives(null)
+      onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className={`bg-white rounded-[16px] p-4 shadow-[0_2px_16px_rgba(0,0,0,0.06)] ${status === 'skipped' ? 'opacity-50' : ''}`}>
+      <div className="flex items-start gap-3">
+        <div className={`w-2 h-2 rounded-full mt-2 shrink-0 ${status === 'eaten' ? 'bg-[#7BA088]' : 'bg-[#5A7A6B]'}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-[#6B7268] shrink-0">{slot.time} · {SLOT_LABELS[slot.slot] || slot.slot}</span>
+            {status === 'eaten' && <Badge variant="sage" className="text-xs shrink-0">Eaten ✓</Badge>}
+            {status === 'skipped' && <span className="text-xs text-[#6B7268] shrink-0">Skipped</span>}
+          </div>
+          <p className={`text-sm font-medium text-ink mt-0.5 leading-snug ${status === 'skipped' ? 'line-through' : ''}`}>{slot.meal}</p>
+          {(slot.kcal > 0 || slot.protein_g > 0) && (
+            <p className="text-xs text-[#6B7268] mt-1">{slot.kcal} kcal · {slot.protein_g}g protein</p>
+          )}
+
+          {status === 'pending' && !alternatives && (
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => logMeal('eaten')} disabled={busy}
+                className="flex-1 py-1.5 rounded-full text-xs font-semibold bg-[#2D4A3E] text-white hover:bg-[#1A1F1B] transition-colors disabled:opacity-50">
+                Eaten ✓
+              </button>
+              <button onClick={loadAlternatives} disabled={busy}
+                className="flex-1 py-1.5 rounded-full text-xs font-medium border border-[#E8E4DC] text-[#6B7268] hover:border-[#2D4A3E] hover:text-[#2D4A3E] transition-colors disabled:opacity-50">
+                {busy ? 'Loading…' : 'Swap'}
+              </button>
+              <button onClick={() => logMeal('skipped')} disabled={busy}
+                className="px-4 py-1.5 rounded-full text-xs font-medium border border-[#E8E4DC] text-[#6B7268] hover:text-ink transition-colors disabled:opacity-50">
+                Skip
+              </button>
+            </div>
+          )}
+          {swapError && <p className="text-xs text-red-500 mt-2">{swapError}</p>}
+
+          {alternatives && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs font-medium text-[#2D4A3E]">Pick an alternative:</p>
+              {alternatives.map((alt, i) => (
+                <button key={i} onClick={() => applySwap(alt)} disabled={busy}
+                  className="w-full text-left px-3 py-2.5 rounded-[12px] border border-[#E8E4DC] hover:border-[#2D4A3E] transition-colors disabled:opacity-50">
+                  <span className="text-sm font-medium text-ink block">{alt.meal}</span>
+                  <span className="text-xs text-[#6B7268]">{alt.kcal} kcal · {alt.protein_g}g protein — {alt.reason}</span>
+                </button>
+              ))}
+              <button onClick={() => setAlternatives(null)} className="text-xs text-[#6B7268] underline">Keep current meal</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function DashboardContent() {
@@ -99,6 +223,14 @@ function DashboardContent() {
       .finally(() => setLoading(false))
   }, [uid])
 
+  async function refresh() {
+    if (!uid) return
+    try {
+      const d = await fetch(`/api/dashboard?uid=${uid}`).then(r => r.json())
+      setData(d)
+    } catch { /* keep showing current data */ }
+  }
+
   if (!uid) return (
     <div className="min-h-screen bg-cream flex items-center justify-center p-5">
       <div className="text-center">
@@ -135,6 +267,8 @@ function DashboardContent() {
   )
 
   const { user, todaySlots, log, pantryAlerts } = data
+  const eatenSlots = data.eatenSlots || []
+  const skippedSlots = data.skippedSlots || []
   const now = new Date()
   const hour = now.getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
@@ -208,18 +342,13 @@ function DashboardContent() {
           {todaySlots && todaySlots.length > 0 ? (
             <div className="space-y-2">
               {todaySlots.map((slot) => (
-                <div key={slot.slot} className="bg-white rounded-[16px] p-4 shadow-[0_2px_16px_rgba(0,0,0,0.06)] flex items-start gap-3">
-                  <div className="w-2 h-2 rounded-full bg-[#5A7A6B] mt-2 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-[#6B7268] shrink-0">{slot.time} · {SLOT_LABELS[slot.slot] || slot.slot}</span>
-                    </div>
-                    <p className="text-sm font-medium text-ink mt-0.5 leading-snug">{slot.meal}</p>
-                    {(slot.kcal > 0 || slot.protein_g > 0) && (
-                      <p className="text-xs text-[#6B7268] mt-1">{slot.kcal} kcal · {slot.protein_g}g protein</p>
-                    )}
-                  </div>
-                </div>
+                <TodayMealCard
+                  key={slot.slot}
+                  slot={slot}
+                  uid={uid}
+                  status={eatenSlots.includes(slot.slot) ? 'eaten' : skippedSlots.includes(slot.slot) ? 'skipped' : 'pending'}
+                  onChanged={refresh}
+                />
               ))}
             </div>
           ) : (
