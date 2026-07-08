@@ -9,41 +9,40 @@ export async function POST(req: NextRequest) {
     const { telegramChatId, ...profileData } = body;
 
     const chatId = telegramChatId ? Number(telegramChatId) : null;
+    const phone = profileData.phone_number as string | undefined;
 
     let userId: string | undefined;
 
+    // Try to find existing user by telegram chat ID or phone number
+    let existing: Record<string, unknown> | null = null;
     if (chatId) {
-      const { data: updated, error: updateError } = await db
-        .from('users')
-        .update({ ...profileData, updated_at: new Date().toISOString() })
-        .eq('telegram_chat_id', chatId)
-        .select()
-        .single();
+      const { data } = await db.from('users').select('id').eq('telegram_chat_id', chatId).single();
+      existing = data;
+    }
+    if (!existing && phone) {
+      const { data } = await db.from('users').select('id').eq('phone_number', phone).single();
+      existing = data;
+    }
 
-      userId = updated?.id;
-
-      if (updateError || !updated) {
-        const { data: inserted, error: insertError } = await db
-          .from('users')
-          .insert({ telegram_chat_id: chatId, ...profileData })
-          .select()
-          .single();
-
-        if (insertError || !inserted) {
-          console.error('[onboarding] insert error:', insertError);
-          return NextResponse.json({ error: insertError?.message || 'Failed to save profile' }, { status: 500 });
-        }
-        userId = inserted.id;
+    if (existing) {
+      const updatePayload = { ...profileData, updated_at: new Date().toISOString() };
+      if (chatId) Object.assign(updatePayload, { telegram_chat_id: chatId });
+      const { error: updateError } = await db.from('users').update(updatePayload).eq('id', existing.id);
+      if (updateError) {
+        console.error('[onboarding] update error:', updateError);
+        return NextResponse.json({ error: updateError.message || 'Failed to update profile' }, { status: 500 });
       }
+      userId = existing.id as string;
     } else {
+      const insertPayload = chatId ? { telegram_chat_id: chatId, ...profileData } : { ...profileData };
       const { data: inserted, error: insertError } = await db
         .from('users')
-        .insert({ ...profileData })
+        .insert(insertPayload)
         .select()
         .single();
 
       if (insertError || !inserted) {
-        console.error('[onboarding] insert error (no tg):', insertError);
+        console.error('[onboarding] insert error:', insertError);
         return NextResponse.json({ error: insertError?.message || 'Failed to save profile' }, { status: 500 });
       }
       userId = inserted.id;
