@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
       existing = data;
     }
     if (!existing && digits) {
-      const { data } = await db.from('users').select('id').ilike('phone_number', `%${digits}`).limit(1).single();
+      const { data } = await db.from('users').select('id').ilike('phone_number', `%${digits}`).limit(1).maybeSingle();
       existing = data;
     }
 
