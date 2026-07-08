@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase';
 import { buildMealPlanPrompt } from '@/lib/prompt-builder';
 import { generatePlanContent } from '@/lib/gemini';
+import { generateDailySchedule } from '@/lib/scheduler';
+import { normalizeMealSlots } from '@/lib/meal-slots';
 
 export const maxDuration = 60;
 
@@ -75,6 +77,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (user.telegram_chat_id) {
+      await generateDailySchedule(user, newPlan);
+    }
+
+    if (user.telegram_chat_id) {
       const TGAPI = `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
       const isMinimal = user.messaging_mode === 'minimal';
       const scheduleText = isMinimal
@@ -108,14 +114,14 @@ export async function POST(req: NextRequest) {
       const dayIndex = today.getDay();
       const planDays = (planData as { days?: Array<Record<string, unknown>> }).days;
       const todayPlan = planDays?.[dayIndex] as Record<string, unknown> | undefined;
-      const slots = (todayPlan?.slots || todayPlan?.meals) as Array<Record<string, unknown>> | undefined;
+      const slots = normalizeMealSlots(todayPlan?.slots || todayPlan?.meals);
       if (slots && slots.length > 0) {
         let planMsg = '';
         for (const slot of slots) {
-          const time = (slot.time as string) || '';
-          const slotName = (slot.slot || slot.name || '') as string;
-          const meal = (slot.meal || slot.description || slot.food || '') as string;
-          const kcal = Number(slot.kcal || slot.calories || 0);
+          const time = slot.time;
+          const slotName = slot.slot;
+          const meal = slot.meal;
+          const kcal = slot.kcal;
           const timePrefix = time ? `${time} ` : '';
           const slotLabel = slotName.replace(/_/g, ' ');
           planMsg += `${timePrefix}*${slotLabel}*\n${meal} (${kcal} kcal)\n\n`;

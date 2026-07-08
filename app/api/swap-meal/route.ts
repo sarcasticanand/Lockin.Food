@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerClient } from '@/lib/supabase'
 import { generateChatContent } from '@/lib/gemini'
+import { normalizeMealSlots } from '@/lib/meal-slots'
 
 interface Alternative {
   meal: string
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     const planData = plan.plan_data as { days?: Array<Record<string, unknown>> }
     const day = planData?.days?.[dayIndex] as Record<string, unknown> | undefined
-    const slots = day?.slots as Array<Record<string, unknown>> | undefined
+    const slots = normalizeMealSlots(day?.slots)
     const currentSlot = slots?.find(s => s.slot === slot)
     if (!currentSlot) return NextResponse.json({ error: `Slot ${slot} not found on day ${dayIndex}` }, { status: 404 })
 
@@ -84,19 +85,27 @@ export async function PATCH(req: NextRequest) {
     const day = { ...(days[dayIndex] as Record<string, unknown>) }
     if (!day) return NextResponse.json({ error: `Day ${dayIndex} not found` }, { status: 404 })
 
-    const slots = [...((day.slots as Array<Record<string, unknown>>) || [])]
+    const slots = normalizeMealSlots(day.slots)
     const slotIdx = slots.findIndex(s => s.slot === slot)
     if (slotIdx === -1) return NextResponse.json({ error: `Slot ${slot} not found` }, { status: 404 })
 
     slots[slotIdx] = {
       ...slots[slotIdx],
+      raw: {
+        ...slots[slotIdx].raw,
+        meal: alternative.meal,
+        kcal: Number(alternative.kcal || 0),
+        protein_g: Number(alternative.protein_g || 0),
+        carbs_g: Number(alternative.carbs_g || 0),
+        fat_g: Number(alternative.fat_g || 0),
+      },
       meal: alternative.meal,
       kcal: Number(alternative.kcal || 0),
       protein_g: Number(alternative.protein_g || 0),
       carbs_g: Number(alternative.carbs_g || 0),
       fat_g: Number(alternative.fat_g || 0),
     }
-    day.slots = slots
+    day.slots = slots.map(s => s.raw)
     days[dayIndex] = day
 
     const { error } = await db
@@ -105,7 +114,7 @@ export async function PATCH(req: NextRequest) {
       .eq('id', plan.id)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ ok: true, slot: slots[slotIdx] })
+    return NextResponse.json({ ok: true, slot: slots[slotIdx].raw })
   } catch (e) {
     console.error('[swap-meal PATCH]', e)
     return NextResponse.json({ error: 'Internal error' }, { status: 500 })

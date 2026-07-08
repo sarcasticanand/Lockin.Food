@@ -3,6 +3,8 @@ import { getServerClient } from '@/lib/supabase'
 import { buildSystemPrompt, getFeatureFlags } from '@/lib/prompt-builder'
 import { generateChatContent, generateChatWithHistory, type ChatMessage } from "@/lib/gemini"
 import { sendMessage, sendTyping, sendButtons, answerCallbackQuery, mealConfirmButtons, pantryAlertButtons } from '@/lib/telegram-helpers'
+import { getDaySlot, normalizeMealSlots } from '@/lib/meal-slots'
+import { consumePantryForMeal, type PantryConsumptionResult } from '@/lib/pantry-consumption'
 
 async function getUser(chatId: number) {
   const { data } = await getServerClient()
@@ -92,7 +94,7 @@ async function sendTodayPlan(chatId: number, plan: Record<string, unknown>, user
     return;
   }
 
-  const slots = (todayPlan.slots || todayPlan.meals) as Record<string, unknown>[] | undefined;
+  const slots = normalizeMealSlots(todayPlan.slots || todayPlan.meals);
   if (!slots || slots.length === 0) {
     await sendMessage(chatId, `Today's plan looks empty. Send /plan again to retry.`);
     return;
@@ -103,11 +105,11 @@ async function sendTodayPlan(chatId: number, plan: Record<string, unknown>, user
 
   let totalKcal = 0;
   for (const slot of slots) {
-    const slotKey = (slot.slot || slot.name || '') as string;
+    const slotKey = slot.slot;
     const label = SLOT_LABELS[slotKey] || `🍽️ ${slotKey.replace(/_/g, ' ')}`;
-    const meal = (slot.meal || slot.description || slot.food || '') as string;
-    const kcal = Number(slot.kcal || slot.calories || 0);
-    const protein = Number(slot.protein_g || slot.protein || 0);
+    const meal = slot.meal;
+    const kcal = slot.kcal;
+    const protein = slot.protein_g;
     totalKcal += kcal;
 
     msg += `*${label}*\n${meal}`;
@@ -172,12 +174,27 @@ export async function POST(req: NextRequest) {
       const dayIndex = new Date().getDay()
       const days = [...(planData.days || [])]
       const todayDay = { ...(days[dayIndex] as Record<string, unknown>) }
-      const slots = [...((todayDay.slots as Array<Record<string, unknown>>) || [])]
+      const slots = normalizeMealSlots(todayDay.slots)
       const slotIdx = slots.findIndex(s => s.slot === slot)
       if (slotIdx !== -1) {
-        slots[slotIdx] = { ...slots[slotIdx], meal: chosen.meal, kcal: chosen.kcal, protein_g: chosen.protein_g, carbs_g: chosen.carbs_g, fat_g: chosen.fat_g }
+        slots[slotIdx] = {
+          ...slots[slotIdx],
+          raw: {
+            ...slots[slotIdx].raw,
+            meal: chosen.meal,
+            kcal: chosen.kcal,
+            protein_g: chosen.protein_g,
+            carbs_g: chosen.carbs_g,
+            fat_g: chosen.fat_g,
+          },
+          meal: String(chosen.meal || slots[slotIdx].meal),
+          kcal: Number(chosen.kcal || 0),
+          protein_g: Number(chosen.protein_g || 0),
+          carbs_g: Number(chosen.carbs_g || 0),
+          fat_g: Number(chosen.fat_g || 0),
+        }
       }
-      todayDay.slots = slots
+      todayDay.slots = slots.map(s => s.raw)
       days[dayIndex] = todayDay
 
       await db.from('meal_plans').update({ plan_data: { ...planData, days } }).eq('id', plan.id)
@@ -192,8 +209,8 @@ export async function POST(req: NextRequest) {
       if (!user) return NextResponse.json({ ok: true })
 
       if (action === 'yes') {
-        await logMealConfirmed(db, user, slot)
-        await sendMessage(chatId, `✅ Logged! Keep it up 🔒`)
+        const pantryResult = await logMealConfirmed(db, user, slot)
+        await sendMealLoggedResponse(chatId, pantryResult)
       } else if (action === 'skip') {
         await sendButtons(chatId, `Understood — did you eat something else or nothing?`, [
           [
@@ -221,13 +238,9 @@ export async function POST(req: NextRequest) {
     if (callbackData.startsWith('pantry:')) {
       const [, action, itemName] = callbackData.split(':')
       const user = await getUser(chatId)
-      if (user && action === 'add') {
-        const { data: list } = await db.from('shopping_lists').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).single()
-        if (list) {
-          const items = [...(list.items || []), { name: itemName, quantity: 'as needed', category: 'groceries', checked: false }]
-          await db.from('shopping_lists').update({ items }).eq('id', list.id)
-          await sendMessage(chatId, `Added ${itemName} to your shopping list.`)
-        }
+      if (user && ['add', 'buy'].includes(action)) {
+        await addItemToShoppingList(db, user.id as string, itemName)
+        await sendMessage(chatId, `Added ${itemName} to your shopping list.`)
       } else {
         await sendMessage(chatId, `Got it!`)
       }
@@ -471,17 +484,21 @@ async function sendWelcomeWithPlan(chatId: number, user: Record<string, unknown>
   }
 }
 
-async function logMealConfirmed(db: ReturnType<typeof getServerClient>, user: Record<string, unknown>, slot: string) {
+async function logMealConfirmed(
+  db: ReturnType<typeof getServerClient>,
+  user: Record<string, unknown>,
+  slot: string
+): Promise<PantryConsumptionResult | null> {
   const today = new Date().toISOString().split('T')[0]
   const plan = await getActivePlan(user.id as string)
-  const planData = plan?.plan_data as { days?: Array<Record<string, unknown>> } | undefined
   const dayIndex = new Date().getDay()
-  const todayPlan = planData?.days?.[dayIndex]
-  const slots = todayPlan?.slots as Array<Record<string, unknown>> | undefined
-  const slotData = slots?.find(s => s.slot === slot) as Record<string, unknown> | undefined
+  const slotData = getDaySlot(plan?.plan_data, dayIndex, slot)
 
   const { data: log } = await db.from('daily_logs').select('*').eq('user_id', user.id).eq('log_date', today).single()
-  const meals_eaten = [...((log?.meals_eaten as unknown[]) || []), {
+  const existing = (log?.meals_eaten as Array<Record<string, unknown>>) || []
+  if (existing.some(meal => meal.slot === slot)) return null
+
+  const meals_eaten = [...existing, {
     slot,
     name: slotData?.meal || slot,
     kcal: Number(slotData?.kcal || 0),
@@ -505,13 +522,69 @@ async function logMealConfirmed(db: ReturnType<typeof getServerClient>, user: Re
     total_carbs_g,
     total_fat_g,
   }, { onConflict: 'user_id,log_date' })
+
+  if (!plan?.plan_data) return null
+  return consumePantryForMeal(db, user.id as string, plan.plan_data, dayIndex, slot)
 }
 
 async function logMealSkipped(db: ReturnType<typeof getServerClient>, user: Record<string, unknown>, slot: string) {
   const today = new Date().toISOString().split('T')[0]
   const { data: log } = await db.from('daily_logs').select('*').eq('user_id', user.id).eq('log_date', today).single()
   const meals_skipped = [...((log?.meals_skipped as string[]) || []), slot]
+  if ((log?.meals_skipped as string[] | undefined)?.includes(slot)) return
   await db.from('daily_logs').upsert({ user_id: user.id, log_date: today, meals_skipped }, { onConflict: 'user_id,log_date' })
+}
+
+async function sendMealLoggedResponse(chatId: number, pantryResult: PantryConsumptionResult | null) {
+  if (!pantryResult) {
+    await sendMessage(chatId, `Already logged this meal.`)
+    return
+  }
+
+  if (!pantryResult.lowOrOut.length) {
+    await sendMessage(chatId, `✅ Logged! Keep it up 🔒`)
+    return
+  }
+
+  const items = pantryResult.lowOrOut.slice(0, 3)
+  await sendMessage(chatId,
+    `✅ Logged! Pantry updated.\n\nRunning low or missing: *${items.join(', ')}*`
+  )
+
+  for (const item of items) {
+    await sendButtons(chatId, `${item} may need restocking. Add it to your shopping list?`, pantryAlertButtons(item))
+  }
+}
+
+async function addItemToShoppingList(
+  db: ReturnType<typeof getServerClient>,
+  userId: string,
+  itemName: string
+) {
+  const { data: list } = await db
+    .from('shopping_lists')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  const items = Array.isArray(list?.items) ? list.items as Array<Record<string, unknown>> : []
+  const exists = items.some(item => String(item.name || '').toLowerCase() === itemName.toLowerCase())
+  if (exists) return
+
+  const nextItems = [...items, { name: itemName, quantity: 'as needed', category: 'groceries', checked: false }]
+
+  if (list?.id) {
+    await db.from('shopping_lists').update({ items: nextItems }).eq('id', list.id)
+  } else {
+    await db.from('shopping_lists').insert({
+      user_id: userId,
+      items: nextItems,
+      ordered: false,
+      order_source: 'telegram',
+    })
+  }
 }
 
 async function sendTodayPlanImproved(chatId: number, plan: Record<string, unknown>, user: Record<string, unknown>) {
@@ -533,7 +606,7 @@ async function sendTodayPlanImproved(chatId: number, plan: Record<string, unknow
     return;
   }
 
-  const slots = (todayPlan.slots || todayPlan.meals) as Record<string, unknown>[] | undefined;
+  const slots = normalizeMealSlots(todayPlan.slots || todayPlan.meals);
   if (!slots || slots.length === 0) {
     await sendMessage(chatId, `Today's plan looks empty. Send /plan again to retry.`);
     return;
@@ -543,14 +616,14 @@ async function sendTodayPlanImproved(chatId: number, plan: Record<string, unknow
 
   let totalKcal = 0, totalProtein = 0, totalCarbs = 0, totalFat = 0;
   for (const slot of slots) {
-    const slotKey = (slot.slot || slot.name || '') as string;
+    const slotKey = slot.slot;
     const label = SLOT_LABELS[slotKey] || `🍽️ ${slotKey.replace(/_/g, ' ')}`;
-    const time = (slot.time as string) || '';
-    const meal = (slot.meal || slot.description || slot.food || '') as string;
-    const kcal = Number(slot.kcal || slot.calories || 0);
-    const protein = Number(slot.protein_g || slot.protein || 0);
-    const carbs = Number(slot.carbs_g || slot.carbs || 0);
-    const fat = Number(slot.fat_g || slot.fat || 0);
+    const time = slot.time;
+    const meal = slot.meal;
+    const kcal = slot.kcal;
+    const protein = slot.protein_g;
+    const carbs = slot.carbs_g;
+    const fat = slot.fat_g;
     totalKcal += kcal;
     totalProtein += protein;
     totalCarbs += carbs;
@@ -599,16 +672,16 @@ async function sendTodayProgress(chatId: number, plan: Record<string, unknown>, 
 
   const planData = plan.plan_data as { days?: Record<string, unknown>[] } | undefined;
   const todayPlan = planData?.days?.[dayIndex] as Record<string, unknown> | undefined;
-  const slots = (todayPlan?.slots || todayPlan?.meals) as Record<string, unknown>[] | undefined;
+  const slots = normalizeMealSlots(todayPlan?.slots || todayPlan?.meals);
 
   if (slots && slots.length > 0) {
-    const remaining = slots.filter(s => !loggedSlots.has((s.slot || s.name) as string));
+    const remaining = slots.filter(s => !loggedSlots.has(s.slot));
     if (remaining.length > 0) {
       msg += `Remaining meals:\n`;
       for (const slot of remaining) {
-        const slotKey = (slot.slot || slot.name || '') as string;
-        const time = (slot.time as string) || '';
-        const meal = (slot.meal || slot.description || slot.food || '') as string;
+        const slotKey = slot.slot;
+        const time = slot.time;
+        const meal = slot.meal;
         const timeStr = time ? ` (${time})` : '';
         const slotLabel = slotKey.replace(/_/g, ' ');
         msg += `• ${slotLabel}${timeStr} — ${meal}\n`;
@@ -688,16 +761,16 @@ async function handleSwapRequest(chatId: number, user: Record<string, unknown>, 
   const dayIndex = new Date().getDay();
   const planData = plan.plan_data as { days?: Array<Record<string, unknown>> };
   const todayPlan = planData?.days?.[dayIndex] as Record<string, unknown> | undefined;
-  const slots = (todayPlan?.slots || todayPlan?.meals) as Array<Record<string, unknown>> | undefined;
+  const slots = normalizeMealSlots(todayPlan?.slots || todayPlan?.meals);
 
   if (!slotName || !slots) {
     await sendMessage(chatId, `Which meal do you want to swap? Try:\n/swap breakfast\n/swap lunch\n/swap dinner\n/swap evening_snack`);
     return;
   }
 
-  const currentSlot = slots.find(s => (s.slot || s.name) === slotName) as Record<string, unknown> | undefined;
+  const currentSlot = slots.find(s => s.slot === slotName);
   if (!currentSlot) {
-    await sendMessage(chatId, `Couldn't find *${slotName}* in today's plan. Available: ${slots.map(s => s.slot || s.name).join(', ')}`);
+    await sendMessage(chatId, `Couldn't find *${slotName}* in today's plan. Available: ${slots.map(s => s.slot).join(', ')}`);
     return;
   }
 
@@ -741,11 +814,8 @@ async function handleSwapRequest(chatId: number, user: Record<string, unknown>, 
 
 async function handleSubstitutedMeal(chatId: number, user: Record<string, unknown>, slot: string, dishName: string) {
   const plan = await getActivePlan(user.id as string)
-  const planData = plan?.plan_data as { days?: Array<Record<string, unknown>> } | undefined
   const dayIndex = new Date().getDay()
-  const todayPlan = planData?.days?.[dayIndex]
-  const slots = todayPlan?.slots as Array<Record<string, unknown>> | undefined
-  const planned = slots?.find(s => s.slot === slot) as Record<string, unknown> | undefined
+  const planned = getDaySlot(plan?.plan_data, dayIndex, slot)
 
   const prompt = `The user was supposed to eat: ${planned?.meal || slot}.\nThey actually ate: ${dishName}.\nEstimate the macros (kcal, protein_g, carbs_g, fat_g).\nEstimate key ingredients (name, approximate grams).\nReturn JSON: { "kcal": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "ingredients": [{"name":"","grams":0}], "comment": "brief suggestion" }`
 

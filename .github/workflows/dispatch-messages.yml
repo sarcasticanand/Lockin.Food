@@ -2,7 +2,7 @@ name: Dispatch Scheduled Messages
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -12,4 +12,4 @@ jobs:
       - name: Trigger dispatch-messages cron
         run: |
           curl -sf -X POST "${{ secrets.APP_URL }}/api/cron/dispatch-messages" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" || true
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

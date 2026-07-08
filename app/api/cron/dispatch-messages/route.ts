@@ -1,41 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerClient } from '@/lib/supabase'
 import { sendMessage, sendButtons, mealConfirmButtons } from '@/lib/telegram-helpers'
+import { messageSlotFromType } from '@/lib/meal-slots'
+import { istDateString } from '@/lib/time'
 
 function cronAuth(req: NextRequest) {
   return req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`
 }
 
-// Runs every 5 min. Sends any scheduled_messages due in the current 5-min window.
+// Runs once daily (Hobby plan). Sends all scheduled_messages for today in one batch.
 async function handler(req: NextRequest) {
   if (!cronAuth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const db = getServerClient()
 
-  // Current time in IST (UTC+5:30)
   const now = new Date()
-  const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000)
-  const todayStr = istNow.toISOString().split('T')[0]
-  const hh = istNow.getUTCHours()
-  const mm = istNow.getUTCMinutes()
-
-  const wsH = hh, wsM = mm
-  const weTotal = hh * 60 + mm + 5
-  const weH = Math.floor(weTotal / 60) % 24
-  const weM = weTotal % 60
-
-  const windowStart = `${wsH.toString().padStart(2, '0')}:${wsM.toString().padStart(2, '0')}`
-  const windowEnd = `${weH.toString().padStart(2, '0')}:${weM.toString().padStart(2, '0')}`
+  const todayStr = istDateString(now)
 
   const { data: messages } = await db
     .from('scheduled_messages')
     .select('*, users(id, telegram_chat_id, name, current_streak, target_kcal, target_protein_g)')
     .eq('scheduled_date', todayStr)
-    .gte('scheduled_time', windowStart)
-    .lt('scheduled_time', windowEnd)
     .eq('is_active', true)
+    .order('scheduled_time', { ascending: true })
 
-  if (!messages?.length) return NextResponse.json({ sent: 0, window: `${windowStart}-${windowEnd}` })
+  if (!messages?.length) return NextResponse.json({ sent: 0, date: todayStr })
 
   let sent = 0
 
@@ -51,11 +40,10 @@ async function handler(req: NextRequest) {
       .replace('{{target_protein_g}}', String(user.target_protein_g || 0))
 
     try {
-      const isPostMeal = ['post_breakfast', 'post_lunch', 'post_dinner'].includes(msg.message_type as string)
-      const slotMap: Record<string, string> = { post_breakfast: 'breakfast', post_lunch: 'lunch', post_dinner: 'dinner' }
+      const postMealSlot = messageSlotFromType(msg.message_type as string)
 
-      if (isPostMeal) {
-        await sendButtons(chatId, text, mealConfirmButtons(slotMap[msg.message_type as string]))
+      if (postMealSlot) {
+        await sendButtons(chatId, text, mealConfirmButtons(postMealSlot))
       } else {
         await sendMessage(chatId, text)
       }
@@ -76,7 +64,7 @@ async function handler(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ sent, window: `${windowStart}-${windowEnd}` })
+  return NextResponse.json({ sent, date: todayStr })
 }
 
 export const GET = handler

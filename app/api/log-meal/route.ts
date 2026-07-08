@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerClient } from '@/lib/supabase'
+import { getDaySlot } from '@/lib/meal-slots'
+import { consumePantryForMeal } from '@/lib/pantry-consumption'
 
 // POST /api/log-meal
 // Body: { userId, slot, action: 'eaten' | 'skipped' }
@@ -42,10 +44,7 @@ export async function POST(req: NextRequest) {
       .single()
 
     const dayIndex = new Date().getDay()
-    const planData = plan?.plan_data as { days?: Array<Record<string, unknown>> } | undefined
-    const todayPlan = planData?.days?.[dayIndex]
-    const slots = todayPlan?.slots as Array<Record<string, unknown>> | undefined
-    const slotData = slots?.find(s => s.slot === slot)
+    const slotData = getDaySlot(plan?.plan_data, dayIndex, slot)
 
     const meals_eaten = [...existing, {
       slot,
@@ -72,7 +71,11 @@ export async function POST(req: NextRequest) {
       total_fat_g,
     }, { onConflict: 'user_id,log_date' })
 
-    return NextResponse.json({ ok: true, total_kcal, total_protein_g, total_carbs_g, total_fat_g })
+    const pantry = plan?.plan_data
+      ? await consumePantryForMeal(db, userId, plan.plan_data, dayIndex, slot)
+      : null
+
+    return NextResponse.json({ ok: true, total_kcal, total_protein_g, total_carbs_g, total_fat_g, pantry })
   } catch (e) {
     console.error('[log-meal]', e)
     return NextResponse.json({ error: 'Internal error' }, { status: 500 })

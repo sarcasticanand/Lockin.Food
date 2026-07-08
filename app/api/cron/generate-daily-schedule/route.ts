@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerClient } from '@/lib/supabase'
 import { generateDailySchedule } from '@/lib/scheduler'
+import { addDaysToDateString, istDateString } from '@/lib/time'
 
 function cronAuth(req: NextRequest) {
   return req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`
@@ -12,9 +13,7 @@ export async function GET(req: NextRequest) {
 
   const db = getServerClient()
 
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  const tomorrowStr = tomorrow.toISOString().split('T')[0]
+  const tomorrowStr = addDaysToDateString(istDateString(), 1)
 
   const { data: users } = await db
     .from('users')

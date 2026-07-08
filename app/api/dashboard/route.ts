@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase';
+import { normalizeMealSlots } from '@/lib/meal-slots';
 
 export async function GET(req: NextRequest) {
   const supabase = getServerClient();
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
 
   const dayIndex = new Date().getDay();
   const todayPlan = plan?.plan_data?.days?.[dayIndex];
+  const todaySlots = todayPlan?.slots ? normalizeMealSlots(todayPlan.slots) : null;
 
   return NextResponse.json({
     user: {
@@ -37,7 +39,7 @@ export async function GET(req: NextRequest) {
       target_carbs_g: user.target_carbs_g || 0,
       target_fat_g: user.target_fat_g || 0,
     },
-    todaySlots: todayPlan?.slots || null,
+    todaySlots,
     eatenSlots: ((log?.meals_eaten as Array<{ slot?: string }>) || []).map(m => m.slot).filter(Boolean),
     skippedSlots: (log?.meals_skipped as string[]) || [],
     log: {

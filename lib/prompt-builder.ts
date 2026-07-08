@@ -207,6 +207,7 @@ INSTRUCTIONS:
 6. Respect ALL dietary restrictions strictly.
 7. Keep within the ₹${user.budget_weekly || 2000}/week grocery budget — use seasonal, affordable ingredients.
 8. Include early_morning (light, e.g., warm water + soaked almonds) and pre_bed (light, e.g., warm milk or nuts) slots.
+9. Every slot must include ingredients as structured objects with name, qty, unit, and category so pantry inventory can be updated after the user confirms a meal.
 
 OUTPUT FORMAT — return ONLY valid JSON, no markdown, no commentary:
 {
@@ -226,7 +227,11 @@ OUTPUT FORMAT — return ONLY valid JSON, no markdown, no commentary:
           "carbs_g": 8,
           "fat_g": 5,
           "prep_time_min": 0,
-          "ingredients": ["almonds", "raisins", "water"]
+          "ingredients": [
+            { "name": "almonds", "qty": 6, "unit": "pieces", "category": "Nuts & Seeds" },
+            { "name": "raisins", "qty": 10, "unit": "pieces", "category": "Nuts & Seeds" },
+            { "name": "water", "qty": 250, "unit": "ml", "category": "Other" }
+          ]
         }
       ]
     }

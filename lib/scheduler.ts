@@ -1,8 +1,10 @@
 import { getServerClient } from '@/lib/supabase'
+import { normalizeMealSlots, slotLabel } from '@/lib/meal-slots'
+import { istDateString } from '@/lib/time'
 
 function addMinutes(time: string, mins: number): string {
   const [h, m] = time.split(':').map(Number)
-  const total = h * 60 + m + mins
+  const total = (h * 60 + m + mins + 24 * 60) % (24 * 60)
   const hh = Math.floor(total / 60) % 24
   const mm = total % 60
   return `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}`
@@ -14,7 +16,7 @@ export async function generateDailySchedule(
   targetDate?: string
 ): Promise<void> {
   const db = getServerClient()
-  const dateStr = targetDate || new Date().toISOString().split('T')[0]
+  const dateStr = targetDate || istDateString()
 
   const dayIndex = new Date(dateStr + 'T12:00:00Z').getDay()
   const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
@@ -25,8 +27,7 @@ export async function generateDailySchedule(
   const todayPlan = planData?.days?.[dayIndex] as Record<string, unknown> | undefined
   if (!todayPlan) return
 
-  const slots = (todayPlan.slots as Array<Record<string, unknown>>) || []
-  const getSlot = (name: string) => slots.find(s => s.slot === name)
+  const slots = normalizeMealSlots(todayPlan.slots)
 
   const firstName = ((user.name as string) || '').split(' ')[0] || 'there'
   const wake = (user.wake_time as string) || '07:00'
@@ -53,47 +54,40 @@ export async function generateDailySchedule(
   }
 
   if (!isSummary) {
-    const bf = getSlot('breakfast')
-    const ln = getSlot('lunch')
-    const dn = getSlot('dinner')
-    const bfTime = (bf?.time as string) || addMinutes(wake, 60)
-    const lnTime = (ln?.time as string) || addMinutes(wake, 300)
-    const dnTime = (dn?.time as string) || addMinutes(wake, 720)
-
     push(wake, 'wake_check',
       `Good morning ${firstName}! Day ${((user.current_streak as number) || 0) + 1}. Ready to stay locked in today? 🔒\n\nTarget: *${dayKcal} kcal · ${user.target_protein_g || 0}g protein*`)
 
-    if (bf) {
-      push(addMinutes(bfTime, -30), 'pre_breakfast',
-        `Breakfast in 30 min: ${bf.meal as string} _(${bf.kcal || 0} kcal · ${bf.protein_g || 0}g protein)_`)
-      push(addMinutes(bfTime, 60), 'post_breakfast',
-        `Did you have the planned breakfast?\n*${bf.meal as string}*`)
+    for (const slot of slots) {
+      if (!slot.time) continue
+
+      const label = slotLabel(slot.slot)
+      const macroText = slot.kcal || slot.protein_g
+        ? ` _(${slot.kcal || 0} kcal · ${slot.protein_g || 0}g protein)_`
+        : ''
+
+      push(addMinutes(slot.time, -15), `pre_${slot.slot}`,
+        `${label} in 15 min: ${slot.meal}${macroText}`)
+      push(addMinutes(slot.time, 30), `post_${slot.slot}`,
+        `Did you have the planned ${label.toLowerCase()}?\n*${slot.meal}*`)
     }
 
-    if (ln) {
-      push(addMinutes(lnTime, -30), 'pre_lunch',
-        `Lunch coming up: ${ln.meal as string} _(${ln.kcal || 0} kcal · ${ln.protein_g || 0}g protein)_`)
-      push(addMinutes(lnTime, 60), 'post_lunch',
-        `Did you have the planned lunch?\n*${ln.meal as string}*`)
-    }
+    const lunchTime = slots.find(slot => slot.slot === 'lunch')?.time
+    const dinnerTime = slots.find(slot => slot.slot === 'dinner')?.time
 
-    push(addMinutes(lnTime, 90), 'hydration_1',
-      `Quick check — have you had at least 5 glasses of water today? 💧`)
+    if (lunchTime) {
+      push(addMinutes(lunchTime, 90), 'hydration_1',
+        `Quick check — have you had at least 5 glasses of water today? 💧`)
+    }
 
     if (isWorkoutDay && user.workout_time) {
       push(addMinutes(user.workout_time as string, -60), 'workout_reminder',
         `Workout in 60 min 💪 Don't forget your pre-workout nutrition.`)
     }
 
-    if (dn) {
-      push(addMinutes(dnTime, -30), 'pre_dinner',
-        `Dinner tonight: ${dn.meal as string} _(${dn.kcal || 0} kcal · ${dn.protein_g || 0}g protein)_`)
-      push(addMinutes(dnTime, 60), 'post_dinner',
-        `Did you have the planned dinner?\n*${dn.meal as string}*`)
+    if (dinnerTime) {
+      push(addMinutes(dinnerTime, 90), 'hydration_2',
+        `Evening water check. Target: 8 glasses today. 💧`)
     }
-
-    push(addMinutes(dnTime, 90), 'hydration_2',
-      `Evening water check. Target: 8 glasses today. 💧`)
 
   } else {
     let briefing = `Good morning ${firstName}! Day ${((user.current_streak as number) || 0) + 1}. 🔒\n\n`

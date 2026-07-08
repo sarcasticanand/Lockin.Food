@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase';
+import { normalizeMealSlots } from '@/lib/meal-slots';
 
 export async function GET(req: NextRequest) {
   const supabase = getServerClient();
@@ -46,19 +47,18 @@ export async function POST(req: NextRequest) {
 
   const days = plan.plan_data?.days || [];
   for (const day of days) {
-    const slots = (day as { slots?: Array<Record<string, unknown>> }).slots || [];
+    const slots = normalizeMealSlots((day as { slots?: unknown }).slots);
     for (const slot of slots) {
-      const typedSlot = slot as { ingredients?: { name: string; qty: number; unit: string; category?: string }[] };
-      const ingredients = typedSlot.ingredients || [];
+      const ingredients = slot.ingredients || [];
       for (const ing of ingredients) {
         const key = ing.name.toLowerCase();
         if (ingredientMap.has(key)) {
           const existing = ingredientMap.get(key)!;
           if (existing.unit === ing.unit) {
-            existing.qty += ing.qty;
+            existing.qty += ing.qty || 1;
           }
         } else {
-          ingredientMap.set(key, { qty: ing.qty, unit: ing.unit, category: ing.category });
+          ingredientMap.set(key, { qty: ing.qty || 1, unit: ing.unit || 'as needed', category: ing.category });
         }
       }
     }

@@ -7,12 +7,8 @@ export type PantryStatus = 'fresh' | 'low' | 'expired' | 'out'
 export type MealSlotKey = 'early_morning' | 'breakfast' | 'mid_morning' | 'lunch' | 'evening_snack' | 'dinner' | 'pre_bed'
 export type MessageType =
   | 'wake_check'
-  | 'pre_breakfast'
-  | 'post_breakfast'
-  | 'pre_lunch'
-  | 'post_lunch'
-  | 'pre_dinner'
-  | 'post_dinner'
+  | `pre_${MealSlotKey}`
+  | `post_${MealSlotKey}`
   | 'workout_reminder'
   | 'hydration_1'
   | 'hydration_2'
