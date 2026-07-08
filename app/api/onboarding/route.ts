@@ -9,22 +9,24 @@ export async function POST(req: NextRequest) {
     const { telegramChatId, ...profileData } = body;
 
     const chatId = telegramChatId ? Number(telegramChatId) : null;
-    const phone = profileData.phone_number as string | undefined;
+    const rawPhone = profileData.phone_number as string | undefined;
+    const digits = rawPhone?.replace(/\D/g, '').slice(-10);
 
     let userId: string | undefined;
 
-    // Try to find existing user by telegram chat ID or phone number
+    // Try to find existing user by telegram chat ID or phone number (handles both "9729973400" and "+919729973400" formats)
     let existing: Record<string, unknown> | null = null;
     if (chatId) {
       const { data } = await db.from('users').select('id').eq('telegram_chat_id', chatId).single();
       existing = data;
     }
-    if (!existing && phone) {
-      const { data } = await db.from('users').select('id').eq('phone_number', phone).single();
+    if (!existing && digits) {
+      const { data } = await db.from('users').select('id').ilike('phone_number', `%${digits}`).limit(1).single();
       existing = data;
     }
 
     if (existing) {
+      if (digits && !rawPhone?.startsWith('+')) profileData.phone_number = `+91${digits}`;
       const updatePayload = { ...profileData, updated_at: new Date().toISOString() };
       if (chatId) Object.assign(updatePayload, { telegram_chat_id: chatId });
       const { error: updateError } = await db.from('users').update(updatePayload).eq('id', existing.id);
@@ -34,6 +36,7 @@ export async function POST(req: NextRequest) {
       }
       userId = existing.id as string;
     } else {
+      if (digits && !rawPhone?.startsWith('+')) profileData.phone_number = `+91${digits}`;
       const insertPayload = chatId ? { telegram_chat_id: chatId, ...profileData } : { ...profileData };
       const { data: inserted, error: insertError } = await db
         .from('users')
