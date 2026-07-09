@@ -8,7 +8,9 @@ function cronAuth(req: NextRequest) {
   return req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`
 }
 
-// Runs once daily (Hobby plan). Sends all scheduled_messages for today in one batch.
+// Pinged frequently by an external cron (plus a daily Vercel cron as backup).
+// Sends every message that is due (scheduled_time <= now IST) and still unsent.
+// A message missed by one run is picked up by the next.
 async function handler(req: NextRequest) {
   if (!cronAuth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -16,12 +18,15 @@ async function handler(req: NextRequest) {
 
   const now = new Date()
   const todayStr = istDateString(now)
+  const istNow = new Date(now.getTime() + 5.5 * 60 * 60 * 1000)
+  const nowHHMM = `${String(istNow.getUTCHours()).padStart(2, '0')}:${String(istNow.getUTCMinutes()).padStart(2, '0')}`
 
   const { data: messages } = await db
     .from('scheduled_messages')
     .select('*, users(id, telegram_chat_id, name, current_streak, target_kcal, target_protein_g)')
     .eq('scheduled_date', todayStr)
     .eq('is_active', true)
+    .lte('scheduled_time', nowHHMM)
     .order('scheduled_time', { ascending: true })
 
   if (!messages?.length) return NextResponse.json({ sent: 0, date: todayStr })

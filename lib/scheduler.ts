@@ -53,40 +53,26 @@ export async function generateDailySchedule(
     }
   }
 
+  // Dispatch runs hourly, so only lateness-tolerant messages are scheduled:
+  // a morning briefing, post-meal "did you eat this?" check-ins (which drive
+  // logging + pantry inventory), and the end-of-day recap. No pre-meal
+  // reminders — they'd arrive too late to be useful.
   if (!isSummary) {
-    push(wake, 'wake_check',
-      `Good morning ${firstName}! Day ${((user.current_streak as number) || 0) + 1}. Ready to stay locked in today? 🔒\n\nTarget: *${dayKcal} kcal · ${user.target_protein_g || 0}g protein*`)
+    let briefing = `Good morning ${firstName}! Day ${((user.current_streak as number) || 0) + 1}. Ready to stay locked in today? 🔒\n\n`
+    if (isWorkoutDay) briefing += `💪 Workout day${user.workout_time ? ` at ${user.workout_time}` : ''}\n\n`
+    briefing += `*Today's meals:*\n`
+    for (const slot of slots) {
+      briefing += `• ${slot.time} ${slotLabel(slot.slot)}: ${slot.meal}\n`
+    }
+    briefing += `\n📊 *Target:* ${dayKcal} kcal · ${user.target_protein_g || 0}g protein`
+    push(wake, 'wake_check', briefing)
 
     for (const slot of slots) {
       if (!slot.time) continue
 
       const label = slotLabel(slot.slot)
-      const macroText = slot.kcal || slot.protein_g
-        ? ` _(${slot.kcal || 0} kcal · ${slot.protein_g || 0}g protein)_`
-        : ''
-
-      push(addMinutes(slot.time, -15), `pre_${slot.slot}`,
-        `${label} in 15 min: ${slot.meal}${macroText}`)
       push(addMinutes(slot.time, 30), `post_${slot.slot}`,
         `Did you have the planned ${label.toLowerCase()}?\n*${slot.meal}*`)
-    }
-
-    const lunchTime = slots.find(slot => slot.slot === 'lunch')?.time
-    const dinnerTime = slots.find(slot => slot.slot === 'dinner')?.time
-
-    if (lunchTime) {
-      push(addMinutes(lunchTime, 90), 'hydration_1',
-        `Quick check — have you had at least 5 glasses of water today? 💧`)
-    }
-
-    if (isWorkoutDay && user.workout_time) {
-      push(addMinutes(user.workout_time as string, -60), 'workout_reminder',
-        `Workout in 60 min 💪 Don't forget your pre-workout nutrition.`)
-    }
-
-    if (dinnerTime) {
-      push(addMinutes(dinnerTime, 90), 'hydration_2',
-        `Evening water check. Target: 8 glasses today. 💧`)
     }
 
   } else {
