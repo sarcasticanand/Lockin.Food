@@ -159,8 +159,8 @@ export default function OnboardingPage() {
       try { planData = JSON.parse(planText) } catch { throw new Error(`Plan generation failed (${planRes.status}): ${planText.slice(0, 120)}`) }
       if (!planRes.ok) throw new Error((planData.error as string) || 'Plan generation failed')
 
-      setSavedUserId(data.userId)
-      setLinkToken(data.linkToken || '')
+      setSavedUserId(data.userId as string)
+      setLinkToken((data.linkToken as string) || '')
       setPlanReady(true)
       setLoadingMessage('')
     } catch (e) {
