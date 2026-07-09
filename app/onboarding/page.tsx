@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -83,6 +83,16 @@ function isValidIndianPhone(input: string): boolean {
 export default function OnboardingPage() {
   const router = useRouter()
   const [step, setStep] = useState(1)
+  const [checkingSession, setCheckingSession] = useState(true)
+
+  useEffect(() => {
+    const saved = localStorage.getItem('lockin_uid')
+    if (saved) {
+      router.replace(`/dashboard?uid=${saved}`)
+    } else {
+      setCheckingSession(false)
+    }
+  }, [router])
   const [form, setForm] = useState<FormData>(INITIAL)
   const [loading, setLoading] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState('')
@@ -159,7 +169,9 @@ export default function OnboardingPage() {
       try { planData = JSON.parse(planText) } catch { throw new Error(`Plan generation failed (${planRes.status}): ${planText.slice(0, 120)}`) }
       if (!planRes.ok) throw new Error((planData.error as string) || 'Plan generation failed')
 
-      setSavedUserId(data.userId as string)
+      const uid = data.userId as string
+      localStorage.setItem('lockin_uid', uid)
+      setSavedUserId(uid)
       setLinkToken((data.linkToken as string) || '')
       setPlanReady(true)
       setLoadingMessage('')
@@ -171,6 +183,8 @@ export default function OnboardingPage() {
   }
 
   const bmiInfo = macros ? getBMILabel(macros.bmi) : null
+
+  if (checkingSession) return null
 
   if (planReady) return (
     <div className="min-h-screen bg-[#2D4A3E] flex flex-col items-center justify-center px-6 text-white">

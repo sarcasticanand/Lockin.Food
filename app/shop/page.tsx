@@ -18,7 +18,7 @@ interface ShopItem {
 
 function ShopContent() {
   const params = useSearchParams()
-  const uid = params.get('uid')
+  const uid = params.get('uid') || (typeof window !== 'undefined' ? localStorage.getItem('lockin_uid') : null)
   const [items, setItems] = useState<ShopItem[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)

@@ -14,7 +14,7 @@ import BottomNav from '@/components/BottomNav'
 
 function ProfileContent() {
   const params = useSearchParams()
-  const uid = params.get('uid')
+  const uid = params.get('uid') || (typeof window !== 'undefined' ? localStorage.getItem('lockin_uid') : null)
   const [user, setUser] = useState<Record<string, unknown> | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)

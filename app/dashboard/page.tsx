@@ -186,7 +186,7 @@ function TodayMealCard({ slot, uid, status, onChanged }: {
 
 function DashboardContent() {
   const params = useSearchParams()
-  const uid = params.get('uid')
+  const uid = params.get('uid') || (typeof window !== 'undefined' ? localStorage.getItem('lockin_uid') : null)
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [generatingPlan, setGeneratingPlan] = useState(false)

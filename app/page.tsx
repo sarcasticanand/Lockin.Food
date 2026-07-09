@@ -1,7 +1,25 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowRight, CheckCircle2, Smartphone, Zap, ShoppingCart, BarChart3, Lock } from 'lucide-react'
 
 export default function LandingPage() {
+  const router = useRouter()
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    const uid = localStorage.getItem('lockin_uid')
+    if (uid) {
+      router.replace(`/dashboard?uid=${uid}`)
+    } else {
+      setReady(true)
+    }
+  }, [router])
+
+  if (!ready) return null
+
   return (
     <div className="min-h-screen bg-cream text-ink">
       {/* Nav */}

@@ -16,7 +16,7 @@ const STATUS_COLORS: Record<PantryStatus, string> = {
 
 function PantryContent() {
   const params = useSearchParams()
-  const uid = params.get('uid')
+  const uid = params.get('uid') || (typeof window !== 'undefined' ? localStorage.getItem('lockin_uid') : null)
   const [items, setItems] = useState<PantryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)

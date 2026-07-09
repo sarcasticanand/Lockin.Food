@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 
 function ProgressContent() {
   const params = useSearchParams()
-  const uid = params.get('uid')
+  const uid = params.get('uid') || (typeof window !== 'undefined' ? localStorage.getItem('lockin_uid') : null)
   const [user, setUser] = useState<Record<string, unknown> | null>(null)
 
   useEffect(() => {

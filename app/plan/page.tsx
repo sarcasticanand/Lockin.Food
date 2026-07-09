@@ -155,7 +155,7 @@ function MealCard({ slot, uid, dayIndex, onSwapped }: {
 
 function PlanContent() {
   const params = useSearchParams()
-  const uid = params.get('uid')
+  const uid = params.get('uid') || (typeof window !== 'undefined' ? localStorage.getItem('lockin_uid') : null)
   const [days, setDays] = useState<DayPlan[]>([])
   const [loading, setLoading] = useState(true)
   const [activeDay, setActiveDay] = useState(String(new Date().getDay()))
