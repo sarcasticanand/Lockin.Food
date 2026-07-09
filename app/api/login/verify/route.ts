@@ -13,27 +13,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Enter the 6-digit code' }, { status: 400 })
     }
 
+    const MAX_ATTEMPTS = 5
+
     const { data: user } = await db
       .from('users')
-      .select('id, name, otp_code, otp_expires_at')
+      .select('id, name, otp_code, otp_expires_at, otp_attempts')
       .ilike('phone_number', `%${digits}`)
       .limit(1)
       .maybeSingle()
 
-    if (!user) {
-      return NextResponse.json({ error: 'No account found' }, { status: 404 })
+    // Generic error for both "no account" and "no active code" so verify can't
+    // be used to enumerate accounts either.
+    if (!user || !user.otp_code) {
+      return NextResponse.json({ error: 'Incorrect or expired code. Request a new one.' }, { status: 401 })
     }
 
-    if (!user.otp_code || user.otp_code !== String(otp)) {
-      return NextResponse.json({ error: 'Incorrect code' }, { status: 401 })
-    }
-
+    // Expired code — clear it and force a re-request.
     if (user.otp_expires_at && new Date(user.otp_expires_at) < new Date()) {
-      await db.from('users').update({ otp_code: null, otp_expires_at: null }).eq('id', user.id)
+      await db.from('users').update({ otp_code: null, otp_expires_at: null, otp_attempts: 0 }).eq('id', user.id)
       return NextResponse.json({ error: 'Code expired. Request a new one.' }, { status: 401 })
     }
 
-    await db.from('users').update({ otp_code: null, otp_expires_at: null }).eq('id', user.id)
+    // Too many wrong guesses — burn the code so brute force can't continue.
+    if ((user.otp_attempts ?? 0) >= MAX_ATTEMPTS) {
+      await db.from('users').update({ otp_code: null, otp_expires_at: null, otp_attempts: 0 }).eq('id', user.id)
+      return NextResponse.json({ error: 'Too many incorrect attempts. Request a new code.' }, { status: 429 })
+    }
+
+    // Wrong code — count the attempt and reject.
+    if (user.otp_code !== String(otp)) {
+      await db.from('users').update({ otp_attempts: (user.otp_attempts ?? 0) + 1 }).eq('id', user.id)
+      return NextResponse.json({ error: 'Incorrect code' }, { status: 401 })
+    }
+
+    // Success — consume the code.
+    await db.from('users').update({ otp_code: null, otp_expires_at: null, otp_attempts: 0 }).eq('id', user.id)
 
     return NextResponse.json({ userId: user.id, name: user.name })
   } catch (e) {

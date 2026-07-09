@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase';
+import { pickWritableUserFields } from '@/lib/user-fields';
 
 export async function GET(req: NextRequest) {
   const supabase = getServerClient();
@@ -12,8 +13,15 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const supabase = getServerClient();
-  const { userId, ...updates } = await req.json();
+  const { userId, ...rawUpdates } = await req.json();
   if (!userId) return NextResponse.json({ error: 'userId required' }, { status: 400 });
+
+  // Restrict to allowlisted columns — never let a caller write link_token,
+  // otp_code, telegram_chat_id, phone_number of another account, etc.
+  const updates = pickWritableUserFields(rawUpdates);
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
+  }
 
   const { data, error } = await supabase
     .from('users')

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase';
+import { pickWritableUserFields } from '@/lib/user-fields';
 import crypto from 'crypto';
 
 export async function POST(req: NextRequest) {
   const db = getServerClient();
   try {
     const body = await req.json();
-    const { telegramChatId, ...profileData } = body;
+    const { telegramChatId, ...rawProfileData } = body;
+    // Only allow client to write allowlisted columns (blocks mass-assignment
+    // of link_token, otp_code, telegram_chat_id, streak, etc.).
+    const profileData = pickWritableUserFields(rawProfileData);
 
     const chatId = telegramChatId ? Number(telegramChatId) : null;
     const rawPhone = profileData.phone_number as string | undefined;
