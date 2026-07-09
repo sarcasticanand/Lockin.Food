@@ -144,16 +144,20 @@ export default function OnboardingPage() {
       const res = await fetch('/api/onboarding', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to save')
+      const resText = await res.text()
+      let data: Record<string, unknown>
+      try { data = JSON.parse(resText) } catch { throw new Error(`Onboarding failed (${res.status}): ${resText.slice(0, 120)}`) }
+      if (!res.ok) throw new Error((data.error as string) || 'Failed to save')
 
       setLoadingMessage('Generating your personalised meal plan with AI...')
       const planRes = await fetch('/api/generate-plan', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: data.userId }),
       })
-      const planData = await planRes.json()
-      if (!planRes.ok) throw new Error(planData.error || 'Plan generation failed')
+      const planText = await planRes.text()
+      let planData: Record<string, unknown>
+      try { planData = JSON.parse(planText) } catch { throw new Error(`Plan generation failed (${planRes.status}): ${planText.slice(0, 120)}`) }
+      if (!planRes.ok) throw new Error((planData.error as string) || 'Plan generation failed')
 
       setSavedUserId(data.userId)
       setLinkToken(data.linkToken || '')
