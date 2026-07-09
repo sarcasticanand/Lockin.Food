@@ -14,7 +14,7 @@
     }
   ],
   "functions": {
-    "app/api/generate-plan/route.ts": { "maxDuration": 60 },
+    "app/api/generate-plan/route.ts": { "maxDuration": 300 },
     "app/api/telegram/route.ts": { "maxDuration": 60 }
   }
 }

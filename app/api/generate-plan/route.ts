@@ -5,7 +5,7 @@ import { generatePlanContent } from '@/lib/gemini';
 import { generateDailySchedule } from '@/lib/scheduler';
 import { normalizeMealSlots } from '@/lib/meal-slots';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const supabase = getServerClient();
