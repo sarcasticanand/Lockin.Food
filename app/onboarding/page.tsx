@@ -46,6 +46,7 @@ interface FormData {
   phone_number: string
   telegram_username: string
   messaging_mode: 'full' | 'summary'
+  email: string
 }
 
 const INITIAL: FormData = {
@@ -57,7 +58,7 @@ const INITIAL: FormData = {
   allergies: [], dislikes: [], dislikes_notes: '',
   budget_weekly: 2000, max_cooking_time: '', meal_preps: false,
   wake_time: '07:00', sleep_time: '23:00', name: '', phone_number: '', telegram_username: '',
-  messaging_mode: 'full' as const,
+  messaging_mode: 'full' as const, email: '',
 }
 
 const WORKOUT_TYPES = ['Gym / Weight Training', 'Running / Cardio', 'Yoga / Pilates', 'Swimming', 'Sports', 'Walking']
@@ -100,6 +101,14 @@ export default function OnboardingPage() {
   const [planReady, setPlanReady] = useState(false)
   const [linkToken, setLinkToken] = useState('')
   const [savedUserId, setSavedUserId] = useState('')
+  const [loginMode, setLoginMode] = useState(false)
+  const [loginPhone, setLoginPhone] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+  const [loginError, setLoginError] = useState('')
+  const [otpSent, setOtpSent] = useState(false)
+  const [otpMethod, setOtpMethod] = useState<'telegram' | 'email' | ''>('')
+  const [otpCode, setOtpCode] = useState('')
+  const [loginName, setLoginName] = useState('')
 
   const set = <K extends keyof FormData>(key: K, val: FormData[K]) =>
     setForm(f => ({ ...f, [key]: val }))
@@ -129,6 +138,7 @@ export default function OnboardingPage() {
       const payload = {
         name: form.name,
         phone_number: phone,
+        email: form.email || null,
         telegram_username: form.telegram_username.replace('@', '') || null,
         goal: form.goal, condition: form.condition || null, condition_notes: form.condition_notes || null,
         target_kg: form.target_kg || null, target_weeks: form.target_weeks || null,
@@ -182,6 +192,61 @@ export default function OnboardingPage() {
     }
   }
 
+  const handleSendOTP = async () => {
+    const digits = loginPhone.replace(/\D/g, '').slice(-10)
+    if (digits.length !== 10 || !/^[6-9]/.test(digits)) {
+      setLoginError('Enter a valid 10-digit Indian mobile number')
+      return
+    }
+    setLoginLoading(true)
+    setLoginError('')
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: digits }),
+      })
+      const text = await res.text()
+      let data: Record<string, unknown>
+      try { data = JSON.parse(text) } catch { throw new Error(`Login failed (${res.status}): ${text.slice(0, 120)}`) }
+      if (!res.ok) throw new Error((data.error as string) || 'Login failed')
+      setOtpSent(true)
+      setOtpMethod(data.method as 'telegram' | 'email')
+      setLoginName((data.name as string) || '')
+    } catch (e) {
+      setLoginError(e instanceof Error ? e.message : 'Something went wrong')
+    } finally {
+      setLoginLoading(false)
+    }
+  }
+
+  const handleVerifyOTP = async () => {
+    if (otpCode.length !== 6) {
+      setLoginError('Enter the 6-digit code')
+      return
+    }
+    setLoginLoading(true)
+    setLoginError('')
+    try {
+      const digits = loginPhone.replace(/\D/g, '').slice(-10)
+      const res = await fetch('/api/login/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: digits, otp: otpCode }),
+      })
+      const text = await res.text()
+      let data: Record<string, unknown>
+      try { data = JSON.parse(text) } catch { throw new Error(`Verification failed (${res.status}): ${text.slice(0, 120)}`) }
+      if (!res.ok) throw new Error((data.error as string) || 'Verification failed')
+      const uid = data.userId as string
+      localStorage.setItem('lockin_uid', uid)
+      router.replace(`/dashboard?uid=${uid}`)
+    } catch (e) {
+      setLoginError(e instanceof Error ? e.message : 'Something went wrong')
+      setLoginLoading(false)
+    }
+  }
+
   const bmiInfo = macros ? getBMILabel(macros.bmi) : null
 
   if (checkingSession) return null
@@ -216,6 +281,79 @@ export default function OnboardingPage() {
       <h2 className="font-display text-2xl font-bold mb-2 text-center">Building your plan</h2>
       <p className="text-white/70 text-center text-sm max-w-xs">{loadingMessage}</p>
       <p className="text-white/40 text-xs mt-4">This takes 15–30 seconds</p>
+    </div>
+  )
+
+  if (loginMode) return (
+    <div className="min-h-screen bg-cream flex flex-col items-center justify-center px-6">
+      <div className="w-full max-w-sm">
+        {!otpSent ? (
+          <>
+            <h2 className="font-display text-2xl font-bold text-ink mb-2 text-center">Welcome back</h2>
+            <p className="text-[#6B7268] text-center text-sm mb-8">Enter your registered phone number to log in.</p>
+            <div className="space-y-4">
+              <div>
+                <Label className="mb-2 block">Phone number</Label>
+                <div className="flex gap-2">
+                  <div className="flex items-center px-3 bg-[#F5F3EE] border border-[#D8D4CC] rounded-xl text-sm text-[#6B7268] shrink-0 select-none">+91</div>
+                  <Input
+                    placeholder="9876543210"
+                    value={loginPhone}
+                    onChange={e => setLoginPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    maxLength={10}
+                    inputMode="numeric"
+                    className="flex-1"
+                    onKeyDown={e => e.key === 'Enter' && handleSendOTP()}
+                  />
+                </div>
+              </div>
+              {loginError && <p className="text-[#C66B5C] text-sm">{loginError}</p>}
+              <Button onClick={handleSendOTP} disabled={loginLoading} className="w-full bg-[#2D4A3E] hover:bg-[#243d32]">
+                {loginLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending code...</> : 'Send login code'}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="font-display text-2xl font-bold text-ink mb-2 text-center">
+              {loginName ? `Hey ${loginName}!` : 'Enter your code'}
+            </h2>
+            <p className="text-[#6B7268] text-center text-sm mb-8">
+              {otpMethod === 'telegram'
+                ? 'We sent a 6-digit code to your Telegram. Check @lockinfood_bot.'
+                : 'We sent a 6-digit code to your email.'}
+            </p>
+            <div className="space-y-4">
+              <div>
+                <Label className="mb-2 block">Verification code</Label>
+                <Input
+                  placeholder="000000"
+                  value={otpCode}
+                  onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  maxLength={6}
+                  inputMode="numeric"
+                  className="text-center text-2xl tracking-[0.3em] font-mono"
+                  onKeyDown={e => e.key === 'Enter' && handleVerifyOTP()}
+                  autoFocus
+                />
+              </div>
+              {loginError && <p className="text-[#C66B5C] text-sm">{loginError}</p>}
+              <Button onClick={handleVerifyOTP} disabled={loginLoading} className="w-full bg-[#2D4A3E] hover:bg-[#243d32]">
+                {loginLoading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Verifying...</> : 'Verify and log in'}
+              </Button>
+              <button
+                onClick={() => { setOtpSent(false); setOtpCode(''); setLoginError('') }}
+                className="w-full text-[#6B7268] text-sm text-center hover:text-ink transition-colors"
+              >
+                Use a different number
+              </button>
+            </div>
+          </>
+        )}
+        <button onClick={() => { setLoginMode(false); setLoginError(''); setOtpSent(false); setOtpCode('') }} className="w-full text-[#6B7268] text-sm mt-6 text-center hover:text-ink transition-colors">
+          New here? Start onboarding
+        </button>
+      </div>
     </div>
   )
 
@@ -605,6 +743,11 @@ export default function OnboardingPage() {
                 )}
               </div>
               <div>
+                <Label className="mb-2 block">Email (optional)</Label>
+                <Input type="email" placeholder="you@example.com" value={form.email} onChange={e => set('email', e.target.value)} />
+                <p className="text-xs text-[#6B7268] mt-1">Used for login verification if you have not linked Telegram.</p>
+              </div>
+              <div>
                 <Label className="mb-2 block">Telegram username (optional)</Label>
                 <Input placeholder="@username" value={form.telegram_username} onChange={e => set('telegram_username', e.target.value)} />
                 <p className="text-xs text-[#6B7268] mt-1">Find yours in Telegram Settings. We will find you by phone number if you do not have one.</p>
@@ -668,6 +811,12 @@ export default function OnboardingPage() {
             </Button>
           )}
         </div>
+
+        {step === 1 && (
+          <button onClick={() => setLoginMode(true)} className="w-full text-[#6B7268] text-sm mt-6 text-center hover:text-ink transition-colors">
+            Already have an account? Log in
+          </button>
+        )}
       </div>
     </div>
   )

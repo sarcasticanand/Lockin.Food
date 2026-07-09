@@ -134,16 +134,20 @@ export async function buildMealPlanPrompt(
   const wakeTime = (user.wake_time as string) || '07:00';
   const sleepTime = (user.sleep_time as string) || '23:00';
 
-  // Derive meal times from wake/sleep
-  const [wakeH] = wakeTime.split(':').map(Number);
+  // Derive meal times from wake/sleep, minute-accurate, anchored to both ends of the day
+  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); };
+  const toHHMM = (min: number) => `${String(Math.floor((min % 1440) / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+  const wakeMin = toMin(wakeTime);
+  let sleepMin = toMin(sleepTime);
+  if (sleepMin <= wakeMin) sleepMin += 1440; // sleeps past midnight
   const mealTimes = {
-    early_morning: `${String(wakeH).padStart(2,'0')}:00`,
-    breakfast: `${String(wakeH + 1).padStart(2,'0')}:15`,
-    mid_morning: `${String(wakeH + 3).padStart(2,'0')}:30`,
-    lunch: `${String(wakeH + 6).padStart(2,'0')}:00`,
-    evening_snack: `${String(wakeH + 10).padStart(2,'0')}:00`,
-    dinner: `${String(wakeH + 13).padStart(2,'0')}:00`,
-    pre_bed: `${String(wakeH + 15).padStart(2,'0')}:30`,
+    early_morning: toHHMM(wakeMin + 15),
+    breakfast: toHHMM(wakeMin + 75),
+    mid_morning: toHHMM(wakeMin + 210),
+    lunch: toHHMM(Math.min(wakeMin + 330, sleepMin - 480)),
+    evening_snack: toHHMM(sleepMin - 300),
+    dinner: toHHMM(sleepMin - 150),
+    pre_bed: toHHMM(sleepMin - 45),
   };
 
   const pantrySummary = pantry.length > 0
@@ -151,36 +155,38 @@ export async function buildMealPlanPrompt(
     : 'standard Indian pantry (rice, dal, roti atta, spices, oil)';
 
   const cookingMap: Record<string, string> = {
-    zero: 'no cooking at all — only ready-to-eat foods, fruits, pre-made items',
-    quick: 'max 20 minutes of cooking per meal — simple, one-pan dishes',
-    medium: '30-45 minutes cooking OK — can make dal, sabzi, rice',
-    long: 'happy to cook 45+ minutes — elaborate meals fine',
+    under_15: 'max 15 minutes of cooking per meal — ready-to-eat, one-pan, or no-cook dishes only',
+    '15_30': 'max 20-30 minutes of cooking per meal — simple, quick dishes',
+    '30_45': '30-45 minutes cooking OK — can make dal, sabzi, rice from scratch',
+    '45_plus': 'happy to cook 45+ minutes — elaborate meals fine',
   };
   const cookingPref = cookingMap[(user.max_cooking_time as string)] || 'moderate cooking';
 
   const goalMap: Record<string, string> = {
-    lose_fat: `Fat loss — create a ${targetKcal} kcal deficit diet. High protein to preserve muscle.`,
-    gain_muscle: `Muscle gain — ${targetKcal} kcal surplus diet. Very high protein, adequate carbs for training fuel.`,
+    fat_loss: `Fat loss${user.target_kg ? ` (${user.target_kg}kg in ${user.target_weeks} weeks)` : ''} — ${targetKcal} kcal deficit diet. High protein to preserve muscle.`,
+    muscle_gain: `Muscle gain${user.target_kg ? ` (${user.target_kg}kg in ${user.target_weeks} weeks)` : ''} — ${targetKcal} kcal surplus diet. Very high protein, adequate carbs for training fuel.`,
     clean_eating: `Clean eating at maintenance (${targetKcal} kcal). Whole foods, minimal processing.`,
-    manage_condition: `Managing ${(user.condition as string) || 'a health condition'} — ${targetKcal} kcal, balanced macros, whole foods.`,
+    manage_condition: `Managing ${(user.condition as string) || 'a health condition'} — ${targetKcal} kcal, balanced macros, whole foods.${(user.condition_notes as string) ? ` Doctor's notes: ${user.condition_notes}` : ''}`,
   };
   const goalDesc = goalMap[(user.goal as string)] || `Goal: ${user.goal}, ${targetKcal} kcal/day`;
 
   return `You are a professional nutritionist and meal planner specialising in Indian cuisine. Generate a personalised 7-day meal plan in strict JSON format.
 
-USER PROFILE:
+USER PROFILE (this plan is for ${(user.name as string) || 'this user'} — tailor every choice to THIS specific profile):
 - Goal: ${goalDesc}
 - Weight: ${user.weight_kg}kg | Height: ${user.height_cm}cm | Age: ${user.age} | Sex: ${user.sex}
 - Activity: ${user.activity_level}
-- Food style: ${(user.food_style_notes as string) || (user.region as string) || 'Indian'}
-- Region/cuisine: ${(user.region as string) || 'Mixed Indian'}
+- Preferred cuisines: ${((user.food_style as string[]) || []).join(', ') || 'Mixed Indian'}
+- Everyday food described by user: ${(user.food_style_notes as string) || 'not specified'}
 - Diet restrictions: ${dietLines.length > 0 ? dietLines.join('; ') : 'None — omnivore'}
 - Allergies: ${((user.allergies as string[]) || []).join(', ') || 'None'}
 - Dislikes: ${((user.dislikes as string[]) || []).join(', ') || 'None'}${(user.dislikes_notes as string) ? `\n- Additional food notes: ${user.dislikes_notes}` : ''}
 - Cooking time available: ${cookingPref}
+- Meal preps on weekends: ${user.meal_preps ? 'Yes — batch cooking on Sat/Sun is fine, weekday meals can reuse prepped components' : 'No — each meal cooked fresh or ready-to-eat'}
 - Weekly grocery budget: ₹${user.budget_weekly || 2000}
 - Wake time: ${wakeTime} | Sleep time: ${sleepTime}
-- Workout days: ${workoutDays.join(', ') || 'none'} (${workoutDayKcal} kcal on workout days, ${targetKcal} on rest days)
+- Workout: ${user.works_out ? `${(user.workout_type as string) || 'general training'} on ${workoutDays.join(', ') || 'unspecified days'}${(user.workout_time as string) ? ` at ${user.workout_time}` : ''}` : 'does not work out'}
+- Workout days get ${workoutDayKcal} kcal, rest days ${targetKcal} kcal
 - Pantry items available: ${pantrySummary}
 
 DAILY MACRO TARGETS:
@@ -200,14 +206,16 @@ MEAL SLOT TIMES (based on wake time ${wakeTime}):
 
 INSTRUCTIONS:
 1. Name SPECIFIC real dishes — not generic like "protein + carb". Write actual Indian dish names: "Moong dal chilla with mint chutney", "2 whole wheat roti + rajma curry + cucumber raita", "Grilled chicken tikka with dal fry and brown rice".
-2. Use the user's regional cuisine and food style as the base. If they eat North Indian food, use dal-roti-sabzi. If South Indian, use idli-sambar-rasam. If mixed, vary across the week.
+2. Use the user's preferred cuisines and everyday food description as the base. If they eat North Indian food, use dal-roti-sabzi. If South Indian, use idli-sambar-rasam. If mixed, vary across the week. Their everyday food description tells you what they actually eat — build around it.
 3. Every meal must have specific quantities: "2 rotis", "1 cup dal", "100g chicken", "1 medium banana".
-4. Scale calories correctly: workout days get ${workoutDayKcal} kcal (extra carbs before/after workout), rest days get ${targetKcal} kcal.
-5. Never repeat the same meal on consecutive days for the same slot.
+4. Scale calories correctly: workout days get ${workoutDayKcal} kcal (extra carbs before/after workout), rest days get ${targetKcal} kcal.${user.works_out && user.workout_time ? `\n   On workout days (${workoutDays.join(', ')}), the user trains at ${user.workout_time}. Place a carb-forward snack 45-60 min BEFORE the workout and a protein-rich meal within 60 min AFTER it. Adjust the nearest meal slots accordingly.` : ''}
+5. VARIETY IS MANDATORY: never repeat the same dish twice in the same slot across the whole week. Use at least 5 distinct breakfasts, 6 distinct lunches, and 6 distinct dinners across the 7 days.
 6. Respect ALL dietary restrictions strictly.
 7. Keep within the ₹${user.budget_weekly || 2000}/week grocery budget — use seasonal, affordable ingredients.
 8. Include early_morning (light, e.g., warm water + soaked almonds) and pre_bed (light, e.g., warm milk or nuts) slots.
 9. Every slot must include ingredients as structured objects with name, qty, unit, and category so pantry inventory can be updated after the user confirms a meal.
+10. USE THE EXACT MEAL SLOT TIMES GIVEN ABOVE. They are derived from this user's actual wake time (${wakeTime}) and sleep time (${sleepTime}). Do not shift meals to generic times like 07:00 if the user wakes later.
+11. This plan must feel hand-made for this person: their goal, their cuisines, their schedule, their budget. Two users with different profiles must never receive the same plan.
 
 OUTPUT FORMAT — return ONLY valid JSON, no markdown, no commentary:
 {

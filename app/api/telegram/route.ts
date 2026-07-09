@@ -304,7 +304,7 @@ export async function POST(req: NextRequest) {
       }
       await sendMessage(chatId,
         `Hey${username ? ` @${username}` : ''}! 👋\n\n` +
-        `Already signed up on *kanshi.app*? Reply with your 10-digit phone number and I'll link your account.\n\n` +
+        `Already signed up on *lockin.food*? Reply with your 10-digit phone number and I'll link your account.\n\n` +
         `_New here? Set up your profile first:_\n👉 ${process.env.APP_URL}/onboarding`
       )
       return NextResponse.json({ ok: true })
@@ -313,14 +313,14 @@ export async function POST(req: NextRequest) {
     const looksLikePhone = (t: string) => { const n = t.replace(/\D/g, '').slice(-10); return n.length === 10 && /^[6-9]/.test(n) }
     if (looksLikePhone(messageText) && (!stateUser || !stateUser.onboarding_complete)) {
       const normalized = messageText.replace(/\D/g, '').slice(-10)
-      const { data: phoneUser } = await db.from('users').select('*').eq('phone_number', normalized).single()
+      const { data: phoneUser } = await db.from('users').select('*').ilike('phone_number', `%${normalized}`).limit(1).maybeSingle()
 
       if (phoneUser) {
         await db.from('users').update({ telegram_chat_id: chatId, telegram_username: username, telegram_connected: true }).eq('id', phoneUser.id)
         if (stateUser && stateUser.id !== phoneUser.id) await db.from('users').delete().eq('id', stateUser.id)
         await sendWelcomeWithPlan(chatId, { ...phoneUser, telegram_chat_id: chatId, telegram_connected: true })
       } else {
-        await sendMessage(chatId, `Couldn't find an account with that number. Make sure you used the same number on *kanshi.app*.`)
+        await sendMessage(chatId, `Couldn't find an account with that number. Make sure you used the same number on *lockin.food*.`)
       }
       return NextResponse.json({ ok: true })
     }
