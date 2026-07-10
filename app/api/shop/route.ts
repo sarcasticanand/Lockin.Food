@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase';
 import { normalizeMealSlots } from '@/lib/meal-slots';
+import { recomputeDepletion } from '@/lib/pantry-depletion';
+
+interface ShoppingItem { name: string; qty?: number; unit?: string; category?: string; checked?: boolean }
 
 export async function GET(req: NextRequest) {
   const supabase = getServerClient();
@@ -87,6 +90,67 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ items });
+}
+
+// Mark the latest shopping list ordered and load its items into the pantry.
+// This is the input that was missing: without it the pantry stays empty and
+// every meal reads as "you own nothing". Called when the user confirms they
+// bought the groceries (manually or after a Swiggy order).
+export async function PATCH(req: NextRequest) {
+  const supabase = getServerClient();
+  const { userId, orderSource } = await req.json();
+  if (!userId) return NextResponse.json({ error: 'userId required' }, { status: 400 });
+
+  const { data: list } = await supabase
+    .from('shopping_lists')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!list) return NextResponse.json({ error: 'No shopping list to order' }, { status: 404 });
+
+  const items = (Array.isArray(list.items) ? list.items : []) as ShoppingItem[];
+  // Only stock what's actually being bought (unchecked = not already owned).
+  const toStock = items.filter((it) => !it.checked);
+
+  const { data: existing } = await supabase
+    .from('pantry_items')
+    .select('id, name, quantity, unit')
+    .eq('user_id', userId);
+  const existingByName = new Map((existing || []).map((p: { name: string }) => [p.name.toLowerCase(), p]));
+
+  const today = new Date().toISOString().slice(0, 10);
+  for (const it of toStock) {
+    const key = it.name.toLowerCase();
+    const prior = existingByName.get(key) as { id: string; quantity: number | null; unit: string | null } | undefined;
+    if (prior) {
+      // Restocking an existing item — top up the quantity.
+      const newQty = (Number(prior.quantity) || 0) + (Number(it.qty) || 0);
+      await supabase.from('pantry_items').update({ quantity: newQty, status: 'fresh', purchased_date: today }).eq('id', prior.id);
+    } else {
+      await supabase.from('pantry_items').insert({
+        user_id: userId,
+        name: it.name,
+        quantity: Number(it.qty) || null,
+        unit: it.unit || null,
+        category: it.category || null,
+        status: 'fresh',
+        purchased_date: today,
+      });
+    }
+  }
+
+  await supabase
+    .from('shopping_lists')
+    .update({ ordered: true, ordered_at: new Date().toISOString(), order_source: orderSource || 'manual' })
+    .eq('id', list.id);
+
+  // Project fresh depletion dates from the newly stocked quantities.
+  await recomputeDepletion(supabase, userId);
+
+  return NextResponse.json({ stocked: toStock.length });
 }
 
 function categorize(name: string): string {

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getDaySlot, type MealIngredient } from '@/lib/meal-slots'
+import { recomputeDepletion } from '@/lib/pantry-depletion'
 
 interface PantryItem {
   id: string
@@ -114,8 +115,13 @@ export async function consumePantryForMeal(
     const item = pantryByName.get(normalizeName(ingredient.name))
 
     if (!item) {
+      // Ingredient isn't tracked in the pantry. We genuinely don't know whether
+      // the user has it (staples like salt/oil are rarely tracked), so we record
+      // it as "missing" for the caller but do NOT auto-add it to the shopping
+      // list or nag a restock — that produced false "buy everything" spam when
+      // the pantry was empty. Restock suggestions come only from tracked items
+      // that actually deplete.
       missingIngredients.push(ingredient)
-      lowOrOut.add(ingredient.name)
       continue
     }
 
@@ -145,7 +151,14 @@ export async function consumePantryForMeal(
     if (status === 'low' || status === 'out') lowOrOut.add(item.name)
   }
 
-  await addMissingItemsToShoppingList(db, userId, missingIngredients)
+  // Only tracked items that actually ran low/out get queued for restock.
+  const restock = ((pantryItems || []) as PantryItem[])
+    .filter((item) => lowOrOut.has(item.name))
+    .map((item) => ({ name: item.name, qty: undefined, unit: item.unit || undefined } as MealIngredient))
+  await addMissingItemsToShoppingList(db, userId, restock)
+
+  // Refresh depletion projections now that quantities changed.
+  await recomputeDepletion(db, userId, planData)
 
   return {
     consumed,

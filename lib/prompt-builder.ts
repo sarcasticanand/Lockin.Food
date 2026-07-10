@@ -74,6 +74,7 @@ export async function buildSystemPrompt(
     : '';
 
   const replacements: Record<string, string> = {
+    '{{name}}': ((user.name as string) || '').split(' ')[0] || 'there',
     '{{username}}': (user.telegram_username as string) || 'there',
     '{{goal}}': (user.goal as string) || 'not set',
     '{{target_info}}': targetInfo,
