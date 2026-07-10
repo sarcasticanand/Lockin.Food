@@ -395,6 +395,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
+    if (messageText === '/groceries' || messageText === '/order' || /\b(order|buy)\b.*\bgroc|\bgroc.*\b(order|buy)\b/i.test(messageText)) {
+      await sendTyping(chatId)
+      const res = await fetch(`${process.env.APP_URL}/api/swiggy/cart`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      }).catch(() => null)
+      if (!res) {
+        await sendMessage(chatId, `Couldn't reach Swiggy right now. Try /groceries again in a moment.`)
+        return NextResponse.json({ ok: true })
+      }
+      const data = await res.json()
+
+      if (data.linked === false && data.linkUrl) {
+        await sendMessage(chatId,
+          `To order groceries I need to connect your Swiggy account (one-time, ~30 sec — phone + OTP):\n\n👉 [Connect Swiggy](${data.linkUrl})\n\nOnce you're done, send /groceries again and I'll build your cart.`)
+        return NextResponse.json({ ok: true })
+      }
+      if (data.error && !data.cart) {
+        await sendMessage(chatId, data.error)
+        return NextResponse.json({ ok: true })
+      }
+
+      const cart = data.cart
+      let msg = `🛒 *Your Instamart cart*`
+      if (data.address?.addressTag) msg += ` — delivering to *${data.address.addressTag}*`
+      msg += `\n\n`
+      for (const it of cart.items || []) msg += `• ${it.itemName} × ${it.quantity} — ₹${it.discountedFinalPrice}\n`
+      const toPay = cart.billBreakdown?.toPay
+      msg += `\n*${toPay?.label || 'To Pay'}: ${toPay?.value || cart.cartTotalAmount}*\n`
+      if (data.unmatched?.length) msg += `\n⚠️ Couldn't find on Instamart: ${data.unmatched.slice(0, 8).join(', ')}\n`
+      if (data.skipped?.length) msg += `\n_Skipped pantry staples: ${data.skipped.slice(0, 6).join(', ')}${data.skipped.length > 6 ? '…' : ''}_\n`
+      msg += `\nReview and place the order yourself in Swiggy — I never order or pay for you:\n👉 https://www.swiggy.com/instamart`
+      await sendMessage(chatId, msg)
+      return NextResponse.json({ ok: true })
+    }
+
     if (messageText === '/help') {
       await sendHelpMessage(chatId, user)
       return NextResponse.json({ ok: true })
