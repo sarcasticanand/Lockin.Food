@@ -318,7 +318,15 @@ export async function POST(req: NextRequest) {
       if (phoneUser) {
         await db.from('users').update({ telegram_chat_id: chatId, telegram_username: username, telegram_connected: true }).eq('id', phoneUser.id)
         if (stateUser && stateUser.id !== phoneUser.id) await db.from('users').delete().eq('id', stateUser.id)
-        await sendWelcomeWithPlan(chatId, { ...phoneUser, telegram_chat_id: chatId, telegram_connected: true })
+        const linkedUser = { ...phoneUser, telegram_chat_id: chatId, telegram_connected: true }
+        await sendWelcomeWithPlan(chatId, linkedUser)
+        // Kick off today's message schedule immediately (mirrors the deep-link
+        // path) so proactive check-ins start without waiting for the midnight cron.
+        const { data: linkPlan } = await db.from('meal_plans').select('*').eq('user_id', phoneUser.id).eq('is_active', true).limit(1).maybeSingle()
+        if (linkPlan) {
+          const { generateDailySchedule } = await import('@/lib/scheduler')
+          await generateDailySchedule(linkedUser, linkPlan)
+        }
       } else {
         await sendMessage(chatId, `Couldn't find an account with that number. Make sure you used the same number on *lockin.food*.`)
       }

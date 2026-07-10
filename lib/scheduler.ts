@@ -43,13 +43,13 @@ export async function generateDailySchedule(
     scheduled_date: string
     scheduled_time: string
     message_type: string
-    message_template: string
+    message_text: string
     is_active: boolean
   }> = []
 
-  const push = (scheduled_time: string, message_type: string, message_template: string) => {
+  const push = (scheduled_time: string, message_type: string, message_text: string) => {
     if (!optOuts.includes(message_type)) {
-      rows.push({ user_id: user.id as string, scheduled_date: dateStr, scheduled_time, message_type, message_template, is_active: true })
+      rows.push({ user_id: user.id as string, scheduled_date: dateStr, scheduled_time, message_type, message_text, is_active: true })
     }
   }
 
@@ -67,8 +67,11 @@ export async function generateDailySchedule(
     briefing += `\n📊 *Target:* ${dayKcal} kcal · ${user.target_protein_g || 0}g protein`
     push(wake, 'wake_check', briefing)
 
+    // Post-meal check-ins only for the main meals (DB constraint allows
+    // post_breakfast/lunch/dinner). These drive logging + pantry inventory.
+    const CHECK_IN_SLOTS = new Set(['breakfast', 'lunch', 'dinner'])
     for (const slot of slots) {
-      if (!slot.time) continue
+      if (!slot.time || !CHECK_IN_SLOTS.has(slot.slot)) continue
 
       const label = slotLabel(slot.slot)
       push(addMinutes(slot.time, 30), `post_${slot.slot}`,
@@ -103,6 +106,7 @@ export async function generateDailySchedule(
     .eq('is_active', true)
 
   if (rows.length > 0) {
-    await db.from('scheduled_messages').insert(rows)
+    const { error } = await db.from('scheduled_messages').insert(rows)
+    if (error) console.error(`[scheduler] insert failed for user ${user.id}:`, error.message)
   }
 }

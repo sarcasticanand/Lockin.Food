@@ -38,7 +38,7 @@ async function handler(req: NextRequest) {
     const chatId = user?.telegram_chat_id as number
     if (!chatId) continue
 
-    const text = (msg.message_template as string)
+    const text = (msg.message_text as string)
       .replace('{{name}}', (user.name as string) || 'there')
       .replace('{{streak}}', String(user.current_streak || 0))
       .replace('{{target_kcal}}', String(user.target_kcal || 0))
@@ -53,7 +53,7 @@ async function handler(req: NextRequest) {
         await sendMessage(chatId, text)
       }
 
-      await db.from('scheduled_messages').update({ is_active: false }).eq('id', msg.id)
+      await db.from('scheduled_messages').update({ is_active: false, sent: true, sent_at: new Date().toISOString() }).eq('id', msg.id)
 
       await db.from('conversation_history').insert({
         user_id: user.id,
