@@ -54,6 +54,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `AI returned invalid format: ${(parseError as Error).message}` }, { status: 500 });
     }
 
+    // Patch AI calorie totals: recalculate each day's total_kcal from its slots
+    // so the numbers shown to the user are always internally consistent.
+    const targetKcal = (user.target_kcal as number) || 2000;
+    for (const day of planData.days as Array<Record<string, unknown>>) {
+      const slots = (day.slots || day.meals || []) as Array<{ kcal?: number }>;
+      const sumKcal = slots.reduce((s, sl) => s + (Number(sl.kcal) || 0), 0);
+      if (sumKcal > 0) day.total_kcal = sumKcal;
+      const dayTarget = day.is_workout_day ? Math.round(targetKcal * 1.12) : targetKcal;
+      const drift = sumKcal > 0 ? Math.abs(sumKcal - dayTarget) / dayTarget : 0;
+      if (drift > 0.15) {
+        console.warn(`[generate-plan] Day ${day.day_index ?? day.day_name}: slot sum ${sumKcal} vs target ${dayTarget} (${(drift * 100).toFixed(0)}% drift)`);
+      }
+    }
+
     await supabase
       .from('meal_plans')
       .update({ is_active: false })
@@ -89,13 +103,16 @@ export async function POST(req: NextRequest) {
 
       const welcomeText =
         `🎉 Your plan is ready, ${user.name || 'there'}! I'm *Kanshi*, your AI nutrition coach.\n\n` +
-        `Here's what I can do:\n\n` +
+        `Two quick things:\n` +
+        `📌 *Pin this chat* so I never get buried\n` +
+        `🗓 One tap to get meal reminders in your calendar:\n${process.env.APP_URL}/cal/${user.id}\n\n` +
+        `What I can do:\n` +
+        `📸 Send a *photo of any meal* — I'll identify and log it\n` +
         `📅 /plan — Today's full meal schedule with macros\n` +
         `🕐 /today — What's left for the day + progress so far\n` +
         `📊 /stats — Weekly summary, streak & adherence\n` +
         `🔄 /swap [meal] — e.g. "swap my dinner" to get an alternative\n` +
-        `🥗 /pantry — View & update your pantry\n` +
-        `❓ /help — Show this message again\n\n` +
+        `❓ /help — All commands\n\n` +
         `Every day you'll get:\n${scheduleText}\n\n` +
         `Ready? Here's today 👇`;
 

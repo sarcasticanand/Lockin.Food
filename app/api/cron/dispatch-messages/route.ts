@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerClient } from '@/lib/supabase'
 import { sendMessage, sendButtons, mealConfirmButtons } from '@/lib/telegram-helpers'
+import { waSendMessage, waSendButtons } from '@/lib/whatsapp-helpers'
 import { messageSlotFromType } from '@/lib/meal-slots'
 import { istDateString } from '@/lib/time'
+
+// Free WhatsApp sends require an open 24h customer-service window.
+function waWindowOpen(user: Record<string, unknown>): boolean {
+  if (!user.whatsapp_connected || !user.whatsapp_phone || !user.whatsapp_last_msg_at) return false
+  return Date.now() - new Date(user.whatsapp_last_msg_at as string).getTime() < 24 * 60 * 60 * 1000
+}
 
 function cronAuth(req: NextRequest) {
   return req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`
@@ -23,7 +30,7 @@ async function handler(req: NextRequest) {
 
   const { data: messages } = await db
     .from('scheduled_messages')
-    .select('*, users(id, telegram_chat_id, name, current_streak, target_kcal, target_protein_g)')
+    .select('*, users(*)')
     .eq('scheduled_date', todayStr)
     .eq('is_active', true)
     .lte('scheduled_time', nowHHMM)
@@ -36,7 +43,8 @@ async function handler(req: NextRequest) {
   for (const msg of messages) {
     const user = msg.users as Record<string, unknown>
     const chatId = user?.telegram_chat_id as number
-    if (!chatId) continue
+    const viaWhatsApp = waWindowOpen(user)
+    if (!chatId && !viaWhatsApp) continue
 
     const text = (msg.message_text as string)
       .replace('{{name}}', (user.name as string) || 'there')
@@ -46,11 +54,18 @@ async function handler(req: NextRequest) {
 
     try {
       const postMealSlot = messageSlotFromType(msg.message_type as string)
+      const waPhone = user.whatsapp_phone as string
 
       if (postMealSlot) {
-        await sendButtons(chatId, text, mealConfirmButtons(postMealSlot))
+        const buttons = mealConfirmButtons(postMealSlot)
+        if (viaWhatsApp) {
+          await waSendButtons(waPhone, text, buttons.map(row => row.map(b => ({ text: b.text, data: b.callback_data }))))
+        } else {
+          await sendButtons(chatId, text, buttons)
+        }
       } else {
-        await sendMessage(chatId, text)
+        if (viaWhatsApp) await waSendMessage(waPhone, text)
+        else await sendMessage(chatId, text)
       }
 
       await db.from('scheduled_messages').update({ is_active: false, sent: true, sent_at: new Date().toISOString() }).eq('id', msg.id)

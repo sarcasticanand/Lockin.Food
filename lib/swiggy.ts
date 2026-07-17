@@ -19,13 +19,23 @@ async function withInstamart<T>(accessToken: string, fn: (client: Client) => Pro
   }
 }
 
-// MCP tool results wrap content as an array of parts; the Swiggy tools return a
-// single JSON text part. Parse it back into an object.
+// MCP tool results wrap content as an array of parts. Swiggy returns a human-
+// readable summary part ("Found 23 saved addresses...") plus a JSON part, and
+// may also set structuredContent. Prefer structuredContent, else the first
+// text part that parses as JSON.
 function parseToolResult<T>(result: unknown): T {
-  const content = (result as { content?: Array<{ type: string; text?: string }> })?.content
-  const textPart = content?.find((p) => p.type === 'text')?.text
-  if (!textPart) throw new Error('Empty tool result from Swiggy')
-  return JSON.parse(textPart) as T
+  const r = result as { structuredContent?: unknown; content?: Array<{ type: string; text?: string }> }
+  // Use structuredContent only when it actually carries data — some tools
+  // (e.g. update_cart) return an empty {} here and put the payload in text.
+  if (r?.structuredContent && typeof r.structuredContent === 'object' && Object.keys(r.structuredContent as object).length > 0) {
+    return r.structuredContent as T
+  }
+  const textParts = (r?.content || []).filter((p) => p.type === 'text' && p.text)
+  for (const part of textParts) {
+    try { return JSON.parse(part.text!) as T } catch { /* summary part — keep looking */ }
+  }
+  const preview = textParts[0]?.text?.slice(0, 120) || 'empty'
+  throw new Error(`No JSON payload in Swiggy tool result (${preview})`)
 }
 
 async function call<T>(accessToken: string, name: string, args: Record<string, unknown>): Promise<T> {

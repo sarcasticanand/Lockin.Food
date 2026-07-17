@@ -58,6 +58,79 @@ export interface ChatMessage {
   content: string
 }
 
+export interface MealPhotoEstimate {
+  dish: string
+  portion: string
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  matches_planned: boolean
+  confidence: 'high' | 'medium' | 'low'
+  comment: string
+}
+
+// Analyse a meal photo against what the user was supposed to eat. Because we
+// pass the planned meal, this is mostly a verification task ("is this the
+// rajma chawal on the plan, and roughly how much?") rather than open-world
+// food recognition — which is what keeps accuracy usable.
+export async function analyzeMealPhoto(
+  imageBase64: string,
+  mimeType: string,
+  context: { plannedMeal?: string; plannedKcal?: number; slotLabel?: string }
+): Promise<MealPhotoEstimate> {
+  const plannedLine = context.plannedMeal
+    ? `Their meal plan says they should be eating: "${context.plannedMeal}" (~${context.plannedKcal || '?'} kcal) for ${context.slotLabel || 'this meal'}.`
+    : 'No specific meal was planned for this time.'
+
+  const prompt = `You are a nutritionist analysing a photo of an Indian meal.
+${plannedLine}
+
+Look at the photo and estimate what the dish is and its nutrition. If it clearly matches the planned meal, say so and use portions visible in the photo to refine the calorie estimate.
+
+Return ONLY JSON:
+{
+  "dish": "specific dish name with visible portions, e.g. '2 rotis with palak paneer and salad'",
+  "portion": "brief portion description",
+  "kcal": 0,
+  "protein_g": 0,
+  "carbs_g": 0,
+  "fat_g": 0,
+  "matches_planned": true/false,
+  "confidence": "high" | "medium" | "low",
+  "comment": "one short encouraging or corrective sentence for the user"
+}`
+
+  const response = await ai().models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: [{
+      role: 'user',
+      parts: [
+        { inlineData: { mimeType, data: imageBase64 } },
+        { text: prompt },
+      ],
+    }],
+    config: {
+      responseMimeType: 'application/json',
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  })
+
+  const text = (response.text ?? '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+  const parsed = JSON.parse(text) as MealPhotoEstimate
+  return {
+    dish: String(parsed.dish || 'Unknown dish'),
+    portion: String(parsed.portion || ''),
+    kcal: Number(parsed.kcal) || 0,
+    protein_g: Number(parsed.protein_g) || 0,
+    carbs_g: Number(parsed.carbs_g) || 0,
+    fat_g: Number(parsed.fat_g) || 0,
+    matches_planned: Boolean(parsed.matches_planned),
+    confidence: (['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'medium') as MealPhotoEstimate['confidence'],
+    comment: String(parsed.comment || ''),
+  }
+}
+
 export async function generateChatWithHistory(
   systemInstruction: string,
   history: ChatMessage[],
