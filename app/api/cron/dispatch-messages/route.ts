@@ -11,6 +11,14 @@ function waWindowOpen(user: Record<string, unknown>): boolean {
   return Date.now() - new Date(user.whatsapp_last_msg_at as string).getTime() < 24 * 60 * 60 * 1000
 }
 
+// WhatsApp gets a deliberately quieter cadence than Telegram: only the
+// interactive post-meal check-ins and the evening recap. Reminders live in
+// the user's calendar there, and the day plan arrives with their first
+// message of the day — unprompted pings read as business spam on WhatsApp.
+function allowedOnWhatsApp(messageType: string): boolean {
+  return messageType.startsWith('post_') || messageType === 'end_of_day'
+}
+
 function cronAuth(req: NextRequest) {
   return req.headers.get('authorization') === `Bearer ${process.env.CRON_SECRET}`
 }
@@ -43,8 +51,18 @@ async function handler(req: NextRequest) {
   for (const msg of messages) {
     const user = msg.users as Record<string, unknown>
     const chatId = user?.telegram_chat_id as number
-    const viaWhatsApp = waWindowOpen(user)
-    if (!chatId && !viaWhatsApp) continue
+    // Prefer WhatsApp only for message types that belong there; everything
+    // else goes to Telegram, or is skipped for WhatsApp-only users.
+    const viaWhatsApp = waWindowOpen(user) && allowedOnWhatsApp(msg.message_type as string) && !chatId
+    if (!chatId && !viaWhatsApp) {
+      // WhatsApp-only user. Types that never belong on WhatsApp are retired;
+      // allowed types with a closed window stay pending — the window may
+      // reopen when the user messages later today (dispatch runs hourly).
+      if (user?.whatsapp_connected && !allowedOnWhatsApp(msg.message_type as string)) {
+        await db.from('scheduled_messages').update({ is_active: false }).eq('id', msg.id)
+      }
+      continue
+    }
 
     const text = (msg.message_text as string)
       .replace('{{name}}', (user.name as string) || 'there')

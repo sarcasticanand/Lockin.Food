@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { after } from 'next/server'
 import { getServerClient } from '@/lib/supabase'
 import { whatsappChannel } from '@/lib/whatsapp-helpers'
 import { handleBotEvent, sendWelcomeWithPlan } from '@/lib/bot-engine'
+
+export const maxDuration = 60
 
 // WhatsApp Cloud API webhook. Identity comes for free here: every inbound
 // message carries the sender's phone number, so users who signed up on
@@ -20,7 +23,6 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const db = getServerClient()
   try {
     const body = await req.json()
     const value = body?.entry?.[0]?.changes?.[0]?.value
@@ -33,14 +35,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    const from: string = msg.from // E.164 without '+', e.g. "919729973400"
-    const profileName: string = value?.contacts?.[0]?.profile?.name || ''
+    // ACK Meta immediately and do all real work (DB, Gemini, sends) after the
+    // response — a slow handler makes Meta retry the webhook, which shows up
+    // as duplicate replies and, past their patience, a disabled subscription.
+    after(() => processMessage(value, msg))
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    console.error('[whatsapp webhook]', error)
+    // Always 200 — a non-200 makes Meta retry and eventually disable the webhook.
+    return NextResponse.json({ ok: true })
+  }
+}
 
-    const text: string = msg.type === 'text' ? (msg.text?.body || '').trim() : ''
-    const callbackData: string = msg.type === 'interactive' ? (msg.interactive?.button_reply?.id || '') : ''
-    const photoId: string | undefined = msg.type === 'image' ? msg.image?.id : undefined
+async function processMessage(value: Record<string, unknown> | undefined, msg: Record<string, unknown>) {
+  const db = getServerClient()
+  try {
+    const from = String(msg.from) // E.164 without '+', e.g. "919729973400"
+    const contacts = (value as { contacts?: Array<{ profile?: { name?: string } }> } | undefined)?.contacts
+    const profileName: string = contacts?.[0]?.profile?.name || ''
 
-    const ctx = whatsappChannel(from, msg.id)
+    const type = String(msg.type)
+    const text: string = type === 'text' ? String((msg.text as { body?: string })?.body || '').trim() : ''
+    const callbackData: string = type === 'interactive' ? String((msg.interactive as { button_reply?: { id?: string } })?.button_reply?.id || '') : ''
+    const photoId: string | undefined = type === 'image' ? (msg.image as { id?: string })?.id : undefined
+
+    const ctx = whatsappChannel(from, String(msg.id))
 
     // Match account by phone number (last 10 digits, same rule as Telegram linking).
     const last10 = from.replace(/\D/g, '').slice(-10)
@@ -57,7 +76,7 @@ export async function POST(req: NextRequest) {
         `I don't have a profile for this number yet. Set yours up in ~2 minutes (use this same number):\n👉 ${process.env.APP_URL}/onboarding\n\n` +
         `Once you're done, message me here again and everything starts automatically.`
       )
-      return NextResponse.json({ ok: true })
+      return
     }
 
     // First WhatsApp contact for a known account → link and welcome.
@@ -73,18 +92,14 @@ export async function POST(req: NextRequest) {
         const { generateDailySchedule } = await import('@/lib/scheduler')
         await generateDailySchedule({ ...user, whatsapp_connected: true }, linkPlan)
       }
-      return NextResponse.json({ ok: true })
+      return
     }
 
     // Track the 24h customer-service window for free proactive messages.
     await db.from('users').update({ whatsapp_last_msg_at: new Date().toISOString() }).eq('id', user.id)
 
     await handleBotEvent(ctx, user, { text, callbackData, photoId })
-
-    return NextResponse.json({ ok: true })
   } catch (error) {
-    console.error('[whatsapp webhook]', error)
-    // Always 200 — a non-200 makes Meta retry and eventually disable the webhook.
-    return NextResponse.json({ ok: true })
+    console.error('[whatsapp process]', error)
   }
 }
