@@ -116,6 +116,7 @@ export async function handleBotEvent(
   const ALIASES: Record<string, string> = {
     plan: '/plan', today: '/today', stats: '/stats', help: '/help', menu: '/help',
     calendar: '/calendar', groceries: '/groceries', order: '/groceries', mode: '/mode',
+    'send my plan': '/plan', // quick-reply button on the win-back template
   }
   const messageText = ALIASES[lower] || event.text.trim()
 

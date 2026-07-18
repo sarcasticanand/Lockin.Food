@@ -13,7 +13,7 @@ function api() {
   return { token, phoneNumberId }
 }
 
-async function post(body: Record<string, unknown>): Promise<void> {
+async function post(body: Record<string, unknown>): Promise<boolean> {
   const { token, phoneNumberId } = api()
   const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
     method: 'POST',
@@ -24,6 +24,7 @@ async function post(body: Record<string, unknown>): Promise<void> {
     const err = await res.text().catch(() => '')
     console.error('[whatsapp] send failed:', res.status, err.slice(0, 300))
   }
+  return res.ok
 }
 
 // WhatsApp renders *bold* and _italic_ like our Telegram Markdown, but does
@@ -69,6 +70,23 @@ export async function waSendButtons(to: string, text: string, buttons: BotButton
 // Mark the incoming message read and show a typing indicator.
 export async function waMarkReadAndType(messageId: string): Promise<void> {
   await post({ status: 'read', message_id: messageId, typing_indicator: { type: 'text' } }).catch(() => {})
+}
+
+// Send a pre-approved template message (the only way to reach a user whose
+// 24h service window has closed; billed per message by Meta). Returns whether
+// Meta accepted it, so callers only mark a nudge as sent when it really went.
+export async function waSendTemplate(to: string, templateName: string, bodyParams: string[] = []): Promise<boolean> {
+  return post({
+    to,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: 'en' },
+      ...(bodyParams.length > 0
+        ? { components: [{ type: 'body', parameters: bodyParams.map(t => ({ type: 'text', text: t })) }] }
+        : {}),
+    },
+  })
 }
 
 // Download an inbound media item (two-step: media-id → URL → binary, both authed).

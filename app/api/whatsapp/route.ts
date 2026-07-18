@@ -55,7 +55,10 @@ async function processMessage(value: Record<string, unknown> | undefined, msg: R
     const profileName: string = contacts?.[0]?.profile?.name || ''
 
     const type = String(msg.type)
-    const text: string = type === 'text' ? String((msg.text as { body?: string })?.body || '').trim() : ''
+    // Quick-reply taps on template messages arrive as type "button" with the
+    // button's label as text; route them through the normal text path.
+    const buttonText = type === 'button' ? String((msg.button as { text?: string })?.text || '').trim() : ''
+    const text: string = type === 'text' ? String((msg.text as { body?: string })?.body || '').trim() : buttonText
     const callbackData: string = type === 'interactive' ? String((msg.interactive as { button_reply?: { id?: string } })?.button_reply?.id || '') : ''
     const photoId: string | undefined = type === 'image' ? (msg.image as { id?: string })?.id : undefined
 

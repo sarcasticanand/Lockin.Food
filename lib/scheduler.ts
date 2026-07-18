@@ -54,51 +54,54 @@ export async function generateDailySchedule(
   }
 
   // Dispatch runs hourly, so only lateness-tolerant messages are scheduled:
-  // a morning briefing, post-meal "did you eat this?" check-ins (which drive
-  // logging + pantry inventory), and the end-of-day recap. No pre-meal
-  // reminders — they'd arrive too late to be useful.
+  // a morning briefing, post-meal check-ins (which drive logging + pantry
+  // inventory), and the end-of-day recap. No pre-meal reminders, they'd
+  // arrive too late to be useful.
+  //
+  // Copy is written the way a dietician texts: short lines, plain words,
+  // no em dashes, no exclamation pileups, at most a stray emoji. Check-in
+  // phrasing varies per meal so the day doesn't read like a form letter.
   if (!isSummary) {
-    let briefing = `Good morning ${firstName}! Day ${((user.current_streak as number) || 0) + 1}. Ready to stay locked in today? 🔒\n\n`
-    if (isWorkoutDay) briefing += `💪 Workout day${user.workout_time ? ` at ${user.workout_time}` : ''}\n\n`
-    briefing += `*Today's meals:*\n`
+    let briefing = `Morning ${firstName}. Day ${((user.current_streak as number) || 0) + 1}.\n`
+    if (isWorkoutDay) briefing += `Gym day${user.workout_time ? `, you train at ${user.workout_time}` : ''}. Eat the pre workout snack on time.\n`
+    briefing += `\nToday's plan:\n`
     for (const slot of slots) {
-      briefing += `• ${slot.time} ${slotLabel(slot.slot)}: ${slot.meal}\n`
+      briefing += `${slot.time} ${slotLabel(slot.slot)}: ${slot.meal}\n`
     }
-    briefing += `\n📊 *Target:* ${dayKcal} kcal · ${user.target_protein_g || 0}g protein`
+    briefing += `\nAim for ${dayKcal} kcal and ${user.target_protein_g || 0}g protein. Message me here if you want to change anything.`
     push(wake, 'wake_check', briefing)
 
-    // Post-meal check-ins only for the main meals (DB constraint allows
-    // post_breakfast/lunch/dinner). These drive logging + pantry inventory.
-    const CHECK_IN_SLOTS = new Set(['breakfast', 'lunch', 'dinner'])
+    // Post-meal check-ins for main meals plus the evening snack. Requires the
+    // scheduled_messages message_type check constraint to allow
+    // post_evening_snack (see scripts/whatsapp-schema.sql).
+    const CHECK_IN_TEXT: Record<string, (meal: string) => string> = {
+      breakfast: m => `Done with breakfast? Plan said ${m}. If you had something else, a photo works too.`,
+      lunch: m => `How did lunch go? You had ${m} on the plan.`,
+      evening_snack: m => `Snack check. ${m} was on the plan for the evening.`,
+      dinner: m => `Dinner done? Plan had ${m}.`,
+    }
     for (const slot of slots) {
-      if (!slot.time || !CHECK_IN_SLOTS.has(slot.slot)) continue
-
-      const label = slotLabel(slot.slot)
-      push(addMinutes(slot.time, 30), `post_${slot.slot}`,
-        `Did you have the planned ${label.toLowerCase()}?\n*${slot.meal}*`)
+      if (!slot.time || !CHECK_IN_TEXT[slot.slot]) continue
+      push(addMinutes(slot.time, 30), `post_${slot.slot}`, CHECK_IN_TEXT[slot.slot](slot.meal))
     }
 
   } else {
-    let briefing = `Good morning ${firstName}! Day ${((user.current_streak as number) || 0) + 1}. 🔒\n\n`
-    if (isWorkoutDay) briefing += `💪 Workout day\n\n`
-    briefing += `*Today's meals:*\n`
-
-    const EMOJI: Record<string, string> = {
-      early_morning: '🌅', breakfast: '🍳', mid_morning: '🍎', lunch: '🍱',
-      evening_snack: '☕', dinner: '🌙', pre_bed: '🌛',
-    }
+    let briefing = `Morning ${firstName}. Day ${((user.current_streak as number) || 0) + 1}.\n`
+    if (isWorkoutDay) briefing += `Gym day today.\n`
+    briefing += `\nToday's plan:\n`
     for (const slot of slots) {
-      const emoji = EMOJI[slot.slot as string] || '🍽️'
-      briefing += `${emoji} ${slot.time}: ${slot.meal}${slot.kcal ? ` _(${slot.kcal} kcal · ${slot.protein_g || 0}g P)_` : ''}\n`
+      briefing += `${slot.time} ${slotLabel(slot.slot)}: ${slot.meal}${slot.kcal ? ` (${slot.kcal} kcal, ${slot.protein_g || 0}g protein)` : ''}\n`
     }
-    briefing += `\n📊 *Target:* ${dayKcal} kcal | ${user.target_protein_g || 0}g protein`
-    briefing += `\n\nReply anytime to swap a meal or ask anything.`
+    briefing += `\nAim for ${dayKcal} kcal and ${user.target_protein_g || 0}g protein. Reply anytime to swap a meal or ask me anything.`
 
     push(addMinutes(wake, 30), 'wake_check', briefing)
   }
 
+  // The dispatcher replaces this with an accurate macro summary built from
+  // daily_logs at send time; this text is only the fallback when nothing
+  // was logged all day.
   push(addMinutes(sleep, -30), 'end_of_day',
-    `Day ${((user.current_streak as number) || 0) + 1} done.\n\nHow did it go? Reply with your weight if you weighed in today, or just say "done" to close out the day.`)
+    `That's the day, ${firstName}. Nothing logged today, so no numbers from me. Send your weight if you weighed in, or just tell me how the day went.`)
 
   await db.from('scheduled_messages').delete()
     .eq('user_id', user.id)
