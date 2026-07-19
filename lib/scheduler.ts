@@ -100,7 +100,13 @@ export async function generateDailySchedule(
   // The dispatcher replaces this with an accurate macro summary built from
   // daily_logs at send time; this text is only the fallback when nothing
   // was logged all day.
-  push(addMinutes(sleep, -30), 'end_of_day',
+  //
+  // Dispatch runs hourly on the hour and its last run of the IST day is
+  // 23:00; a later slot (or one that wraps past midnight for late sleepers)
+  // would never send, so cap the recap at 23:00.
+  let eodTime = addMinutes(sleep, -30)
+  if (eodTime > '23:00' || eodTime < '12:00') eodTime = '23:00'
+  push(eodTime, 'end_of_day',
     `That's the day, ${firstName}. Nothing logged today, so no numbers from me. Send your weight if you weighed in, or just tell me how the day went.`)
 
   await db.from('scheduled_messages').delete()
