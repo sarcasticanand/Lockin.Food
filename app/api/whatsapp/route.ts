@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { after } from 'next/server'
 import { getServerClient } from '@/lib/supabase'
 import { whatsappChannel } from '@/lib/whatsapp-helpers'
 import { handleBotEvent, sendWelcomeWithPlan } from '@/lib/bot-engine'
@@ -23,6 +22,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const db = getServerClient()
   try {
     const body = await req.json()
     const value = body?.entry?.[0]?.changes?.[0]?.value
@@ -35,10 +35,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // ACK Meta immediately and do all real work (DB, Gemini, sends) after the
-    // response — a slow handler makes Meta retry the webhook, which shows up
-    // as duplicate replies and, past their patience, a disabled subscription.
-    after(() => processMessage(value, msg))
+    // Dedup: Meta may resend the same message id if our response is slow.
+    // First insert wins; a genuine duplicate hits the unique-key conflict
+    // (Postgres 23505) and we bail so the user never gets a doubled reply.
+    // Any other error (e.g. table not migrated yet) fails open — better a
+    // rare double than total silence.
+    if (msg.id) {
+      const { error: dupErr } = await db.from('processed_messages').insert({ wamid: String(msg.id) })
+      if (dupErr?.code === '23505') return NextResponse.json({ ok: true })
+    }
+
+    // Process synchronously. Gemini replies in a few seconds and maxDuration is
+    // 60s, so this finishes well within Meta's retry window. We deliberately do
+    // NOT use next/after(): its background task was being torn down before the
+    // reply's send call completed, so slow paths (AI questions, swaps) silently
+    // never replied while fast command paths did.
+    await processMessage(value, msg)
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error('[whatsapp webhook]', error)

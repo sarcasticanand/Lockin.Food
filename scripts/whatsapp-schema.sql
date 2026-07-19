@@ -12,6 +12,14 @@ CREATE INDEX IF NOT EXISTS idx_users_whatsapp_phone ON users (whatsapp_phone);
 -- When we last sent this user the paid win-back template (max 1 per 7 days).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS wa_winback_at TIMESTAMPTZ;
 
+-- Inbound-message dedup. The webhook processes synchronously and Meta may
+-- resend a message id if our reply is slow; the unique wamid stops a doubled
+-- reply. Prune old rows periodically (they're only useful for minutes).
+CREATE TABLE IF NOT EXISTS processed_messages (
+  wamid TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Widen the message_type check so the evening-snack check-in can be
 -- scheduled (the original constraint only allowed the three main meals).
 DO $$
