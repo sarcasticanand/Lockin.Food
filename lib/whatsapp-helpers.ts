@@ -80,10 +80,12 @@ export async function waSendButtons(to: string, text: string, buttons: BotButton
   }
 }
 
-// Mark the incoming message read and show a typing indicator. Best-effort and
-// isolated: a bad message_id here must never affect the actual reply.
-export async function waMarkReadAndType(messageId: string): Promise<void> {
-  await post({ status: 'read', message_id: messageId, typing_indicator: { type: 'text' } }, 'typing').catch(() => {})
+// Mark the incoming message read (documented, simple payload). Fire-and-forget:
+// we never await or let this affect the reply. An errored fetch inside a
+// Vercel `after()` task was aborting the whole task before the reply sent, so
+// this must run fully detached from the reply path.
+export function waMarkRead(messageId: string): void {
+  void post({ status: 'read', message_id: messageId }, 'read').catch(() => {})
 }
 
 // Send a pre-approved template message (the only way to reach a user whose
@@ -121,7 +123,9 @@ export function whatsappChannel(to: string, inboundMessageId?: string): BotChann
     channel: 'whatsapp',
     send: (text: string) => waSendMessage(to, text),
     sendButtons: (text: string, buttons: BotButton[][]) => waSendButtons(to, text, buttons),
-    typing: () => (inboundMessageId ? waMarkReadAndType(inboundMessageId) : Promise.resolve()),
+    // Fire-and-forget read receipt; resolves immediately so it can never
+    // block or abort the reply that follows.
+    typing: () => { if (inboundMessageId) waMarkRead(inboundMessageId); return Promise.resolve() },
     downloadPhoto: (mediaId: string) => waDownloadMedia(mediaId),
   }
 }
