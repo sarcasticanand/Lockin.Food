@@ -13,7 +13,7 @@ function api() {
   return { token, phoneNumberId }
 }
 
-async function post(body: Record<string, unknown>): Promise<boolean> {
+async function post(body: Record<string, unknown>, label = 'send'): Promise<boolean> {
   const { token, phoneNumberId } = api()
   const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
     method: 'POST',
@@ -22,7 +22,9 @@ async function post(body: Record<string, unknown>): Promise<boolean> {
   })
   if (!res.ok) {
     const err = await res.text().catch(() => '')
-    console.error('[whatsapp] send failed:', res.status, err.slice(0, 300))
+    console.error(`[whatsapp] ${label} failed:`, res.status, err.slice(0, 300))
+  } else {
+    console.log(`[whatsapp] ${label} ok`)
   }
   return res.ok
 }
@@ -34,11 +36,16 @@ function sanitize(text: string): string {
 }
 
 export async function waSendMessage(to: string, text: string): Promise<void> {
-  const body = sanitize(text)
+  const body = sanitize(text).trim()
+  // WhatsApp rejects an empty text body with 131009; never send one.
+  if (!body) {
+    console.error('[whatsapp] text skipped: empty body')
+    return
+  }
   const MAX = 4000
   const chunks = body.length > MAX ? body.match(new RegExp(`.{1,${MAX}}`, 'gs')) || [body] : [body]
   for (const chunk of chunks) {
-    await post({ to, type: 'text', text: { body: chunk, preview_url: false } })
+    await post({ to, type: 'text', text: { body: chunk, preview_url: false } }, 'text')
   }
 }
 
@@ -51,12 +58,12 @@ export async function waSendButtons(to: string, text: string, buttons: BotButton
     await waSendMessage(to, body)
     body = 'Choose an option:'
   }
-  await post({
+  const ok = await post({
     to,
     type: 'interactive',
     interactive: {
       type: 'button',
-      body: { text: body },
+      body: { text: body || 'Choose an option:' },
       action: {
         buttons: flat.map(b => ({
           type: 'reply',
@@ -64,12 +71,19 @@ export async function waSendButtons(to: string, text: string, buttons: BotButton
         })),
       },
     },
-  })
+  }, 'buttons')
+  // Some accounts reject interactive messages (e.g. test numbers); fall back
+  // to a plain numbered list so the user still gets the choices and the reply.
+  if (!ok) {
+    const lines = flat.map((b, i) => `${i + 1}. ${b.text}`).join('\n')
+    await waSendMessage(to, `${body}\n\n${lines}\n\nReply with the option text.`)
+  }
 }
 
-// Mark the incoming message read and show a typing indicator.
+// Mark the incoming message read and show a typing indicator. Best-effort and
+// isolated: a bad message_id here must never affect the actual reply.
 export async function waMarkReadAndType(messageId: string): Promise<void> {
-  await post({ status: 'read', message_id: messageId, typing_indicator: { type: 'text' } }).catch(() => {})
+  await post({ status: 'read', message_id: messageId, typing_indicator: { type: 'text' } }, 'typing').catch(() => {})
 }
 
 // Send a pre-approved template message (the only way to reach a user whose
