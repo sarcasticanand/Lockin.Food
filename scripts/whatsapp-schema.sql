@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS processed_messages (
   wamid TEXT PRIMARY KEY,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+-- New tables don't grant service_role by default in this project; without
+-- this the webhook's dedup insert 403s and double-reply protection is off.
+GRANT SELECT, INSERT, DELETE ON public.processed_messages TO service_role;
 
 -- Widen the message_type check so the evening-snack check-in can be
 -- scheduled (the original constraint only allowed the three main meals).
