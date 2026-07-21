@@ -29,7 +29,22 @@ export async function GET(req: NextRequest) {
     },
   }
 
-  // 1. Is our app still subscribed to this WABA's webhooks?
+  // Subscribe our app to this WABA's webhooks (POST). Needed once so inbound
+  // messages are delivered to our /api/whatsapp endpoint, not just Meta's
+  // built-in test viewer.
+  if (p.get('action') === 'subscribe') {
+    try {
+      const subPost = await fetch(`${GRAPH}/${wabaId}/subscribed_apps`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      result.subscribe_result = { status: subPost.status, body: await subPost.json().catch(() => null) }
+    } catch (e) {
+      result.subscribe_result = { error: String(e) }
+    }
+  }
+
+  // 1. Which apps are subscribed to this WABA's webhooks?
   try {
     const subRes = await fetch(`${GRAPH}/${wabaId}/subscribed_apps`, {
       headers: { Authorization: `Bearer ${token}` },
