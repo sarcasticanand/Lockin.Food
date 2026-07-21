@@ -54,6 +54,16 @@ export async function GET(req: NextRequest) {
     result.subscribed_apps = { error: String(e) }
   }
 
+  // 1b. App-level webhook config: callback URL + which fields are subscribed.
+  // Inbound needs the "messages" field subscribed here, not just the WABA link.
+  const appId = process.env.WHATSAPP_APP_ID || '1053025110432940'
+  try {
+    const appSubRes = await fetch(`${GRAPH}/${appId}/subscriptions?access_token=${encodeURIComponent(token)}`)
+    result.app_subscriptions = { status: appSubRes.status, body: await appSubRes.json().catch(() => null) }
+  } catch (e) {
+    result.app_subscriptions = { error: String(e) }
+  }
+
   // 2. Phone number details (quality rating, verified name, throughput).
   try {
     const pnRes = await fetch(`${GRAPH}/${phoneNumberId}?fields=display_phone_number,verified_name,quality_rating,throughput,platform_type,code_verification_status`, {
