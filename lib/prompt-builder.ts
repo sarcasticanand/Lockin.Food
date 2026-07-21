@@ -163,6 +163,17 @@ export async function buildMealPlanPrompt(
   };
   const cookingPref = cookingMap[(user.max_cooking_time as string)] || 'moderate cooking';
 
+  // Per-slot calorie budgets that SUM to the day target. Without these the AI
+  // writes normal-sized meals (~2000 kcal) regardless of the target, so a high
+  // target silently under-delivers. Percentages differ for workout days
+  // (more around the pre/post-workout window).
+  const restSplit = { early_morning: 0.04, breakfast: 0.22, mid_morning: 0.08, lunch: 0.28, evening_snack: 0.10, dinner: 0.24, pre_bed: 0.04 };
+  const workoutSplit = { early_morning: 0.04, breakfast: 0.20, mid_morning: 0.08, lunch: 0.25, evening_snack: 0.13, dinner: 0.26, pre_bed: 0.04 };
+  const budgetLines = (total: number, split: Record<string, number>) =>
+    Object.entries(split).map(([slot, pct]) => `  - ${slot}: ~${Math.round(total * pct)} kcal`).join('\n');
+  const restBudget = budgetLines(targetKcal, restSplit);
+  const workoutBudget = budgetLines(workoutDayKcal, workoutSplit);
+
   const goalMap: Record<string, string> = {
     fat_loss: `Fat loss${user.target_kg ? ` (${user.target_kg}kg in ${user.target_weeks} weeks)` : ''} — ${targetKcal} kcal deficit diet. High protein to preserve muscle.`,
     muscle_gain: `Muscle gain${user.target_kg ? ` (${user.target_kg}kg in ${user.target_weeks} weeks)` : ''} — ${targetKcal} kcal surplus diet. Very high protein, adequate carbs for training fuel.`,
@@ -195,6 +206,13 @@ DAILY MACRO TARGETS:
 - Protein: ${user.target_protein_g}g
 - Carbs: ${user.target_carbs_g}g
 - Fat: ${user.target_fat_g}g
+
+PER-SLOT CALORIE BUDGET (this is the most important requirement — hit these numbers):
+Rest days (total ${targetKcal} kcal):
+${restBudget}
+Workout days (total ${workoutDayKcal} kcal):
+${workoutBudget}
+Size every meal's portions so its kcal lands within 15% of its slot budget above. Bigger budget means bigger portions: more rice/roti, larger protein servings, add nuts/ghee/paneer for calorie-dense days. The seven slot kcal values for a day MUST sum to within 5% of that day's total (${targetKcal} rest / ${workoutDayKcal} workout). A plan that comes in under target is wrong — scale portions up until it hits.
 
 MEAL SLOT TIMES (based on wake time ${wakeTime}):
 - early_morning: ${mealTimes.early_morning}
