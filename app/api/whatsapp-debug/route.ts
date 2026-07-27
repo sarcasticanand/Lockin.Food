@@ -54,6 +54,22 @@ export async function GET(req: NextRequest) {
     result.subscribed_apps = { error: String(e) }
   }
 
+  // Remove a specific app's subscription from this WABA. Meta's built-in
+  // "WA DevX Webhook Events 1P App" can intercept message webhooks (they show
+  // up under "Check test webhooks" instead of hitting our callback URL).
+  if (p.get('action') === 'unsubscribe_app') {
+    const targetApp = p.get('app_id') || ''
+    try {
+      const delRes = await fetch(`${GRAPH}/${wabaId}/subscribed_apps?app_id=${encodeURIComponent(targetApp)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      result.unsubscribe_result = { app_id: targetApp, status: delRes.status, body: await delRes.json().catch(() => null) }
+    } catch (e) {
+      result.unsubscribe_result = { error: String(e) }
+    }
+  }
+
   // 1b. App-level webhook config: callback URL + which fields are subscribed.
   // Inbound needs the "messages" field subscribed here, not just the WABA link.
   const appId = process.env.WHATSAPP_APP_ID || '1053025110432940'
