@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { calculateMacros, getBMILabel, getWeeklyRateLabel } from '@/lib/macro-calculator'
+import { waLink, WA_PREFILL } from '@/lib/wa-link'
 import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react'
 import type { Goal, Sex, ActivityLevel, CookingTime } from '@/types'
 
@@ -258,13 +259,15 @@ export default function OnboardingPage() {
       <p className="text-white/70 text-center text-sm max-w-xs mb-8">7 days of personalised Indian meals, locked in.</p>
 
       <div className="w-full max-w-xs space-y-3">
-        <p className="text-white/80 text-sm text-center mb-1">Get daily reminders on Telegram:</p>
+        <p className="text-white/80 text-sm text-center mb-1">Start your daily check-ins on WhatsApp:</p>
         <a
-          href={linkToken ? `https://t.me/lockinfood_bot?start=${linkToken}` : 'https://t.me/lockinfood_bot'}
+          href={waLink(WA_PREFILL.start)}
+          target="_blank" rel="noopener noreferrer"
           className="flex items-center justify-center gap-2 w-full bg-white text-[#2D4A3E] font-semibold py-3 rounded-2xl text-sm hover:bg-white/90 transition-colors"
         >
-          Open @lockinfood_bot →
+          Open WhatsApp →
         </a>
+        <p className="text-white/50 text-xs text-center">We&apos;ve written the first message for you. Just hit send.</p>
         <button
           onClick={() => router.push(`/dashboard?uid=${savedUserId}`)}
           className="w-full text-white/50 text-xs py-2 text-center hover:text-white/80 transition-colors"
@@ -320,7 +323,7 @@ export default function OnboardingPage() {
             </h2>
             <p className="text-[#6B7268] text-center text-sm mb-8">
               {otpMethod === 'telegram'
-                ? 'We sent a 6-digit code to your Telegram. Check @lockinfood_bot.'
+                ? 'We sent a 6-digit code to your WhatsApp.'
                 : 'We sent a 6-digit code to your email.'}
             </p>
             <div className="space-y-4">
@@ -743,14 +746,9 @@ export default function OnboardingPage() {
                 )}
               </div>
               <div>
-                <Label className="mb-2 block">Email (optional)</Label>
-                <Input type="email" placeholder="you@example.com" value={form.email} onChange={e => set('email', e.target.value)} />
-                <p className="text-xs text-[#6B7268] mt-1">Used for login verification if you have not linked Telegram.</p>
-              </div>
-              <div>
-                <Label className="mb-2 block">Telegram username (optional)</Label>
-                <Input placeholder="@username" value={form.telegram_username} onChange={e => set('telegram_username', e.target.value)} />
-                <p className="text-xs text-[#6B7268] mt-1">Find yours in Telegram Settings. We will find you by phone number if you do not have one.</p>
+                <Label className="mb-2 block">Email</Label>
+                <Input type="email" placeholder="you@gmail.com" value={form.email} onChange={e => set('email', e.target.value)} />
+                <p className="text-xs text-[#6B7268] mt-1">For login codes, and so we can nudge you if you go quiet for a few days.</p>
               </div>
             </div>
           </div>

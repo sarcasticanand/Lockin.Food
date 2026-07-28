@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { MessageCircle, ChevronRight, Lock } from 'lucide-react'
 import BottomNav from '@/components/BottomNav'
+import { waLink, WA_PREFILL } from '@/lib/wa-link'
 
 const RadialBarChart = dynamic(
   () => import('recharts').then(m => m.RadialBarChart),
@@ -27,6 +28,7 @@ interface DashboardData {
     name?: string
     telegram_username?: string
     telegram_connected: boolean
+    whatsapp_connected: boolean
     link_token?: string | null
     current_streak: number
     target_kcal: number
@@ -378,18 +380,18 @@ function DashboardContent() {
           ))}
         </div>
 
-        {/* Telegram connect */}
-        {!user.telegram_connected ? (
+        {/* WhatsApp connect */}
+        {!user.whatsapp_connected ? (
           <Card className="bg-[#2D4A3E]/5 border border-[#2D4A3E]/20">
             <div className="flex items-start gap-3">
               <MessageCircle className="w-5 h-5 text-[#2D4A3E] shrink-0 mt-0.5" />
               <div className="flex-1">
                 <h3 className="font-medium text-ink mb-1">Activate your daily meal messages</h3>
-                <p className="text-sm text-[#6B7268] mb-2">Send <span className="font-semibold text-ink">/start</span> to the bot on Telegram. It will recognise your account and send your welcome message + today&apos;s plan right away.</p>
-                <p className="text-xs text-[#6B7268] mb-3">After that you&apos;ll get meal reminders, post-meal check-ins, and a daily recap.</p>
-                <a href={user.link_token ? `https://t.me/lockinfood_bot?start=${user.link_token}` : 'https://t.me/lockinfood_bot'}
+                <p className="text-sm text-[#6B7268] mb-2">Tap below to open WhatsApp and send the message we&apos;ve written for you. We&apos;ll recognise your number and reply with today&apos;s plan straight away.</p>
+                <p className="text-xs text-[#6B7268] mb-3">After that you&apos;ll get your morning plan, check-ins after each meal, and a nightly summary. Send a photo of any meal to log it.</p>
+                <a href={waLink(WA_PREFILL.start)} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 bg-[#1A1F1B] text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-[#2D4A3E] transition-colors">
-                  Open @lockinfood_bot <ChevronRight className="w-3.5 h-3.5" />
+                  Open WhatsApp <ChevronRight className="w-3.5 h-3.5" />
                 </a>
               </div>
             </div>
@@ -397,7 +399,7 @@ function DashboardContent() {
         ) : (
           <div className="flex items-center gap-2 text-sm text-[#7BA088] bg-[#7BA088]/10 rounded-[16px] px-4 py-3">
             <div className="w-2 h-2 rounded-full bg-[#7BA088]" />
-            Telegram connected. Daily messages active.
+            WhatsApp connected. Daily messages active.
           </div>
         )}
       </div>

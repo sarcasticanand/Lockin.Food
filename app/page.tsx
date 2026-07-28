@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowRight, CheckCircle2, Smartphone, Zap, ShoppingCart, BarChart3, Lock } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Smartphone, Zap, ShoppingCart, BarChart3, Lock, Camera } from 'lucide-react'
+import { waLink, WA_PREFILL } from '@/lib/wa-link'
 
 export default function LandingPage() {
   const router = useRouter()
@@ -26,10 +27,10 @@ export default function LandingPage() {
       <nav className="absolute top-0 left-0 right-0 z-20 max-w-5xl mx-auto px-5 py-5 flex items-center justify-between">
         <span className="font-display font-bold text-2xl text-white drop-shadow">Lockin</span>
         <Link
-          href="/onboarding"
+          href="/brand-check"
           className="text-sm font-semibold text-white border border-white/60 rounded-full px-5 py-2 hover:bg-white/20 transition-all duration-200 backdrop-blur-sm"
         >
-          Get started
+          Brand check
         </Link>
       </nav>
 
@@ -54,7 +55,7 @@ export default function LandingPage() {
             Your nutrition,<br />locked in.
           </h1>
           <p className="text-[18px] text-white/80 max-w-[480px] mx-auto mb-10 leading-relaxed">
-            AI-powered meal plans personalised for Indian diets. Macro tracking and daily check-ins on Telegram. Set up in 5 minutes.
+            AI-powered meal plans personalised for Indian diets. Macro tracking and daily check-ins on WhatsApp. Set up in 5 minutes.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
@@ -65,11 +66,11 @@ export default function LandingPage() {
               <ArrowRight className="w-4 h-4" />
             </Link>
             <a
-              href="https://t.me/lockinfood_bot"
+              href={waLink(WA_PREFILL.start)}
               className="inline-flex items-center justify-center gap-2 text-white border border-white/70 px-8 py-4 rounded-full font-semibold text-base hover:bg-white/15 transition-all duration-200 backdrop-blur-sm"
             >
               <Smartphone className="w-4 h-4" />
-              Open Telegram bot
+              Chat on WhatsApp
             </a>
           </div>
         </div>
@@ -98,8 +99,8 @@ export default function LandingPage() {
             },
             {
               step: '03',
-              title: 'Daily check-ins on Telegram',
-              desc: 'Pre-meal reminders, post-meal confirmations, pantry tracking, and an end-of-day summary — all on Telegram.',
+              title: 'Daily check-ins on WhatsApp',
+              desc: 'Your day plan each morning, a quick check-in after each meal, and an end-of-day summary. Send a photo of any meal to log it.',
             },
           ].map((item) => (
             <div
@@ -122,7 +123,8 @@ export default function LandingPage() {
             {[
               { icon: Zap, title: 'Personalised meal plans', desc: 'India-specific recipes for your cuisine, budget, and goal.' },
               { icon: BarChart3, title: 'Macro tracking', desc: 'Daily calorie and protein targets with automatic tracking.' },
-              { icon: Smartphone, title: 'Telegram daily nudges', desc: '10+ daily messages: reminders, confirmations, summaries.' },
+              { icon: Smartphone, title: 'WhatsApp check-ins', desc: 'Morning plan, post-meal check-ins, and a nightly summary.' },
+              { icon: Camera, title: 'Photo meal logging', desc: 'Snap your plate. We identify the dish and log the macros.' },
               { icon: ShoppingCart, title: 'Grocery intelligence', desc: 'Auto-generate shopping lists from your weekly plan.' },
               { icon: Lock, title: 'Pantry tracking', desc: 'Know when you\'re running low on ingredients before it\'s too late.' },
               { icon: CheckCircle2, title: 'Weekly progress', desc: 'Track adherence and estimated goal date based on your streak.' },
@@ -161,7 +163,7 @@ export default function LandingPage() {
           <span className="font-display font-bold text-[#2D4A3E] text-lg">Lockin</span>
           <div className="flex gap-6">
             <Link href="/privacy" className="hover:text-[#1A1F1B] transition-colors">Privacy</Link>
-            <a href="https://t.me/lockinfood_bot" className="hover:text-[#1A1F1B] transition-colors">Telegram</a>
+            <a href={waLink(WA_PREFILL.start)} className="hover:text-[#1A1F1B] transition-colors">WhatsApp</a>
           </div>
         </div>
       </footer>

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerClient } from '@/lib/supabase'
 import { sendMessage, sendButtons, mealConfirmButtons } from '@/lib/telegram-helpers'
-import { waSendMessage, waSendButtons, waSendTemplate } from '@/lib/whatsapp-helpers'
+import { waSendMessage, waSendButtons } from '@/lib/whatsapp-helpers'
+import { sendWinbackEmail } from '@/lib/winback-email'
 import { messageSlotFromType } from '@/lib/meal-slots'
 import { istDateString } from '@/lib/time'
 
 export const maxDuration = 60
 
-const WINBACK_TEMPLATE = 'daily_plan_ready'
 const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 
 // Free WhatsApp sends require an open 24h customer-service window (anchored
@@ -70,29 +70,34 @@ async function buildDaySummary(
   return text
 }
 
-// Once a day (first run in the 8am IST hour), nudge WhatsApp users whose free
-// window has been closed for 3+ days with the approved utility template.
-// Never more than one template per user per 7 days; only marked sent when
-// Meta actually accepts it. This is the only paid message in the system.
+// Once a day (first run in the 8am IST hour), nudge users who have gone quiet
+// for 3+ days. We email them a prefilled wa.me link rather than sending a paid
+// WhatsApp template: the user taps, WhatsApp opens with the message already
+// typed, they hit send, and THEIR message opens the free 24-hour window. Total
+// WhatsApp cost: zero. Max one nudge per user per 7 days.
 async function sendWinbacks(db: ReturnType<typeof getServerClient>, istHour: number): Promise<number> {
   if (istHour !== 8) return 0
 
-  const threeDaysAgo = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString()
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const now = Date.now()
+  const threeDaysAgo = new Date(now - 72 * 60 * 60 * 1000).toISOString()
+  const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString()
 
   const { data: lapsed } = await db
     .from('users')
-    .select('id, name, whatsapp_phone, whatsapp_last_msg_at, wa_winback_at')
-    .eq('whatsapp_connected', true)
+    .select('id, name, email, whatsapp_last_msg_at, wa_winback_at')
     .eq('onboarding_complete', true)
-    .lt('whatsapp_last_msg_at', threeDaysAgo)
+    .not('email', 'is', null)
+    .or(`whatsapp_last_msg_at.is.null,whatsapp_last_msg_at.lt.${threeDaysAgo}`)
 
   let sent = 0
   for (const u of lapsed || []) {
-    if (!u.whatsapp_phone) continue
+    if (!u.email) continue
     if (u.wa_winback_at && u.wa_winback_at > sevenDaysAgo) continue
     const firstName = ((u.name as string) || '').split(' ')[0] || 'there'
-    const ok = await waSendTemplate(u.whatsapp_phone as string, WINBACK_TEMPLATE, [firstName]).catch(() => false)
+    const daysAway = u.whatsapp_last_msg_at
+      ? Math.floor((now - new Date(u.whatsapp_last_msg_at as string).getTime()) / 86400000)
+      : 3
+    const ok = await sendWinbackEmail(u.email as string, firstName, daysAway).catch(() => false)
     if (ok) {
       await db.from('users').update({ wa_winback_at: new Date().toISOString() }).eq('id', u.id)
       sent++

@@ -23,7 +23,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3" style={{ fontFamily: "Fraunces, Georgia, serif" }}>1. Who we are</h2>
             <p>
-              Lockin (&quot;we&quot;, &quot;our&quot;, &quot;the service&quot;) is an AI nutrition coaching product accessible via Telegram
+              Lockin (&quot;we&quot;, &quot;our&quot;, &quot;the service&quot;) is an AI nutrition coaching product accessible via WhatsApp
               and the web at <strong>lockin.food</strong>. We are an individual developer project based in India.
             </p>
           </section>
@@ -32,18 +32,18 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold mb-3" style={{ fontFamily: "Fraunces, Georgia, serif" }}>2. Data we collect</h2>
             <p>When you use Lockin, we collect:</p>
             <ul className="list-disc pl-5 mt-2 space-y-1 text-sm" style={{ color: "#6B7268" }}>
-              <li>Your Telegram chat ID and username (used to identify you)</li>
+              <li>Your WhatsApp phone number and profile name (used to identify you)</li>
               <li>Health profile: height, weight, age, sex, goal, activity level</li>
               <li>Dietary preferences, allergies, and dislikes</li>
               <li>Fitness routine and workout schedule</li>
               <li>Budget and cooking preferences</li>
               <li>Pantry items you add manually</li>
               <li>Meal plan history generated for you</li>
-              <li>Food logs you submit via Telegram</li>
+              <li>Food logs and meal photos you submit via WhatsApp</li>
               <li>Weight logs you submit via /weight command</li>
             </ul>
             <p className="mt-3 text-sm" style={{ color: "#6B7268" }}>
-              We do <strong>not</strong> collect payment information, read your other Telegram chats, or access
+              We do <strong>not</strong> collect payment information, read your other WhatsApp chats, or access
               your device.
             </p>
           </section>
@@ -52,7 +52,7 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold mb-3" style={{ fontFamily: "Fraunces, Georgia, serif" }}>3. How we use your data</h2>
             <ul className="list-disc pl-5 space-y-1 text-sm" style={{ color: "#6B7268" }}>
               <li>To generate personalised meal plans and macro targets for you</li>
-              <li>To provide context to the AI when you send messages in Telegram</li>
+              <li>To provide context to the AI when you send messages on WhatsApp</li>
               <li>To track your nutrition logs and streak</li>
               <li>To generate shopping lists from your meal plan, subtracting pantry items</li>
               <li>To improve our service (aggregated, de-identified statistics only)</li>
@@ -77,10 +77,10 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold mb-3" style={{ fontFamily: "Fraunces, Georgia, serif" }}>5. Third-party services</h2>
             <p className="text-sm mb-2" style={{ color: "#6B7268" }}>We use the following third-party services to operate Lockin:</p>
             <ul className="list-disc pl-5 space-y-1 text-sm" style={{ color: "#6B7268" }}>
-              <li><strong>Google Gemini AI</strong> — generates meal plans and responds to your Telegram messages.
+              <li><strong>Google Gemini AI</strong> — generates meal plans, analyses meal photos, and responds to your WhatsApp messages.
                 Your profile summary and today&apos;s plan are sent to Gemini as context. No personal identifiers are
                 sent — only nutritional and preference data. Subject to Google&apos;s API terms.</li>
-              <li><strong>Telegram</strong> — the primary interface. Telegram processes your messages per their
+              <li><strong>WhatsApp (Meta)</strong> — the primary interface. Meta processes your messages per their
                 privacy policy.</li>
               <li><strong>Vercel</strong> — hosts the web app and API. Vercel may log request metadata.</li>
               <li><strong>Swiggy Instamart</strong> (when enabled) — only your shopping list items (ingredient
@@ -101,7 +101,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3" style={{ fontFamily: "Fraunces, Georgia, serif" }}>7. Your rights</h2>
             <ul className="list-disc pl-5 space-y-1 text-sm" style={{ color: "#6B7268" }}>
-              <li><strong>Delete your data:</strong> Send /deletedata in Telegram. This permanently and
+              <li><strong>Delete your data:</strong> Send /deletedata on WhatsApp. This permanently and
                 irreversibly deletes your profile, meal plans, pantry, shopping lists, and all logs from
                 all tables. This cannot be undone.</li>
               <li><strong>Export your data:</strong> Contact us at the email below to request a copy of
@@ -136,7 +136,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3" style={{ fontFamily: "Fraunces, Georgia, serif" }}>10. Changes to this policy</h2>
             <p className="text-sm" style={{ color: "#6B7268" }}>
-              If we make material changes to this policy, we will notify you via the Telegram bot before
+              If we make material changes to this policy, we will notify you on WhatsApp before
               the changes take effect.
             </p>
           </section>
@@ -144,7 +144,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-xl font-semibold mb-3" style={{ fontFamily: "Fraunces, Georgia, serif" }}>11. Contact</h2>
             <p className="text-sm" style={{ color: "#6B7268" }}>
-              Questions about privacy? Open Telegram and send a message to the bot, or email us at{" "}
+              Questions about privacy? Message us on WhatsApp, or email us at{" "}
               <strong>privacy@lockin.food</strong>.
             </p>
           </section>

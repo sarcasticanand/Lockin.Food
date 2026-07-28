@@ -54,6 +54,19 @@ export async function GET(req: NextRequest) {
     result.subscribed_apps = { error: String(e) }
   }
 
+  // Send the win-back email on demand (normally only fires at 8am IST for
+  // users quiet 3+ days). Verifies the Resend path and the prefilled wa.me
+  // link without waiting for the cron.
+  if (p.get('action') === 'test_winback') {
+    const email = p.get('email') || ''
+    const { sendWinbackEmail } = await import('@/lib/winback-email')
+    const ok = await sendWinbackEmail(email, p.get('name') || 'there', 3).catch((e) => {
+      result.winback_error = String(e)
+      return false
+    })
+    result.winback_sent = ok
+  }
+
   // Remove a specific app's subscription from this WABA. Meta's built-in
   // "WA DevX Webhook Events 1P App" can intercept message webhooks (they show
   // up under "Check test webhooks" instead of hitting our callback URL).

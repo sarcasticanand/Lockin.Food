@@ -7,11 +7,11 @@ const fraunces = Fraunces({ subsets: ['latin'], variable: '--font-display', disp
 
 export const metadata: Metadata = {
   title: 'Lockin — Your AI Nutrition Coach',
-  description: 'AI-powered meal plans, macro tracking, and daily Telegram check-ins. India-first.',
-  keywords: ['nutrition', 'meal planning', 'macros', 'AI coach', 'Telegram', 'India'],
+  description: 'AI-powered meal plans, macro tracking, and daily WhatsApp check-ins. India-first.',
+  keywords: ['nutrition', 'meal planning', 'macros', 'AI coach', 'WhatsApp', 'India'],
   openGraph: {
     title: 'Lockin — Your AI Nutrition Coach',
-    description: 'AI-powered meal planning, macro tracking, and grocery intelligence on Telegram.',
+    description: 'AI-powered meal planning, macro tracking, and grocery intelligence on WhatsApp.',
     url: 'https://lockin.food',
     siteName: 'Lockin',
     type: 'website',

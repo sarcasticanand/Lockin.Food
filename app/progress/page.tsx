@@ -73,7 +73,7 @@ function ProgressContent() {
 
         <div className="bg-white rounded-2xl border border-[#E8E4DC] p-6 text-center">
           <p className="text-[#6B7268] text-sm">Full progress charts (weight trend, weekly macro adherence) coming soon.</p>
-          <p className="text-xs text-[#6B7268] mt-1">Log your weight daily via Telegram to start tracking.</p>
+          <p className="text-xs text-[#6B7268] mt-1">Log your weight daily on WhatsApp to start tracking.</p>
         </div>
       </div>
     </div>

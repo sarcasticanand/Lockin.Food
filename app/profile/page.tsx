@@ -11,6 +11,7 @@ import { ArrowLeft, Save, Loader2 } from 'lucide-react'
 import { calculateMacros } from '@/lib/macro-calculator'
 import type { Goal, Sex, ActivityLevel } from '@/types'
 import BottomNav from '@/components/BottomNav'
+import { waLink, WA_PREFILL } from '@/lib/wa-link'
 
 const PLAN_FIELDS = new Set([
   'height_cm', 'weight_kg', 'age', 'sex', 'activity_level', 'goal',
@@ -111,8 +112,8 @@ function ProfileContent() {
               <Input value={(user.phone_number as string) || ''} onChange={e => set('phone_number', e.target.value)} />
             </div>
             <div>
-              <Label className="mb-1.5 block">Telegram username</Label>
-              <Input value={(user.telegram_username as string) || ''} onChange={e => set('telegram_username', e.target.value)} placeholder="@username" />
+              <Label className="mb-1.5 block">Email</Label>
+              <Input type="email" value={(user.email as string) || ''} onChange={e => set('email', e.target.value)} placeholder="you@gmail.com" />
             </div>
           </div>
         </section>
@@ -202,6 +203,18 @@ function ProfileContent() {
                 <Switch checked={!!user[pref.key]} onCheckedChange={v => set(pref.key, v)} />
               </div>
             ))}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="font-display font-semibold text-base text-ink mb-3">WhatsApp</h2>
+          <div className="bg-white rounded-[16px] shadow-[0_2px_16px_rgba(0,0,0,0.06)] p-4">
+            <p className="text-sm text-[#6B7268] mb-3">
+              Your daily plan, meal check-ins, and photo logging all happen in WhatsApp. One tap opens the chat with a message ready to send.
+            </p>
+            <a href={waLink(WA_PREFILL.plan)} target="_blank" rel="noopener noreferrer">
+              <Button size="sm" className="w-full">Open WhatsApp chat</Button>
+            </a>
           </div>
         </section>
 
