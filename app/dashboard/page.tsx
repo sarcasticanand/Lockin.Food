@@ -197,8 +197,17 @@ function DashboardContent() {
   useEffect(() => {
     if (!uid) return
     fetch(`/api/dashboard?uid=${uid}`)
-      .then(r => r.json())
-      .then(async (d) => {
+      .then(async (r) => ({ ok: r.ok, body: await r.json() }))
+      .then(async ({ ok, body: d }) => {
+        // Stale session: the stored id no longer maps to an account (deleted
+        // profile, wiped database). Clear it and start over, otherwise the
+        // landing page keeps bouncing back here and the dashboard hangs
+        // trying to generate a plan for a user that does not exist.
+        if (!ok || d?.error) {
+          localStorage.removeItem('lockin_uid')
+          window.location.href = '/onboarding'
+          return
+        }
         setData(d)
         if (!d.todaySlots) {
           setGeneratingPlan(true)
