@@ -15,12 +15,14 @@ export async function GET(req: NextRequest) {
 
   const tomorrowStr = addDaysToDateString(istDateString(), 1)
 
+  // Anyone onboarded who has linked a messaging channel. This must include
+  // WhatsApp-only users: filtering on telegram_connected alone meant they got
+  // a welcome message and then never another scheduled message again.
   const { data: users } = await db
     .from('users')
     .select('*')
-    .eq('telegram_connected', true)
     .eq('onboarding_complete', true)
-    .not('telegram_chat_id', 'is', null)
+    .or('telegram_connected.eq.true,whatsapp_connected.eq.true')
 
   if (!users?.length) return NextResponse.json({ scheduled: 0, date: tomorrowStr })
 
