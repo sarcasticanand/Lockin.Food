@@ -70,6 +70,27 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Raw Resend send, returning the API's exact response. Distinguishes an
+  // unverified sending domain from a delivery problem.
+  if (p.get('action') === 'test_email_raw') {
+    try {
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: p.get('from') || process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+          to: p.get('email'),
+          subject: 'lockin.food delivery test',
+          html: '<p>Delivery test. If you can read this, sending works from this address.</p>',
+        }),
+      })
+      result.raw_email = { status: r.status, body: await r.json().catch(() => null) }
+      result.from_used = p.get('from') || process.env.RESEND_FROM_EMAIL || '(sandbox)'
+    } catch (e) {
+      result.raw_email = { error: String(e) }
+    }
+  }
+
   // Send the win-back email on demand (normally only fires at 8am IST for
   // users quiet 3+ days). Verifies the Resend path and the prefilled wa.me
   // link without waiting for the cron.
