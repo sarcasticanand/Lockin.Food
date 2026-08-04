@@ -134,10 +134,22 @@ async function handler(req: NextRequest) {
 
   let sent = 0
 
+  // How late a message may still be sent. Messages queue up while a
+  // WhatsApp user's 24h window is shut, so without this a morning briefing
+  // could land at night the moment they reply. Late ones are retired instead.
+  const STALE_AFTER_MIN = 150
+
   for (const msg of messages || []) {
     const user = msg.users as Record<string, unknown>
     const chatId = user?.telegram_chat_id as number
     const messageType = msg.message_type as string
+
+    const [sh, sm] = String(msg.scheduled_time).split(':').map(Number)
+    const nowMin = istNow.getUTCHours() * 60 + istNow.getUTCMinutes()
+    if (nowMin - (sh * 60 + sm) > STALE_AFTER_MIN) {
+      await db.from('scheduled_messages').update({ is_active: false }).eq('id', msg.id)
+      continue
+    }
     // WhatsApp is preferred when the free window is open and the type belongs
     // there; Telegram is the fallback. One channel per message, never both.
     const viaWhatsApp = waWindowOpen(user) && allowedOnWhatsApp(messageType)
