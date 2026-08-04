@@ -54,6 +54,22 @@ export async function GET(req: NextRequest) {
     result.subscribed_apps = { error: String(e) }
   }
 
+  // List Resend domains + their verification status. Without a verified
+  // sending domain, RESEND_FROM_EMAIL falls back to onboarding@resend.dev,
+  // which only delivers to the Resend account owner — every other
+  // recipient's OTP silently disappears.
+  if (p.get('action') === 'resend_domains') {
+    try {
+      const r = await fetch('https://api.resend.com/domains', {
+        headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+      })
+      result.resend_domains = { status: r.status, body: await r.json().catch(() => null) }
+      result.resend_from_configured = process.env.RESEND_FROM_EMAIL || '(unset — using sandbox)'
+    } catch (e) {
+      result.resend_domains = { error: String(e) }
+    }
+  }
+
   // Send the win-back email on demand (normally only fires at 8am IST for
   // users quiet 3+ days). Verifies the Resend path and the prefilled wa.me
   // link without waiting for the cron.

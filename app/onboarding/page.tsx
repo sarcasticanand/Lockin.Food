@@ -77,6 +77,10 @@ function normalizePhone(input: string): string {
   return input.replace(/\D/g, '').slice(-10)
 }
 
+function isValidEmail(input: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.trim())
+}
+
 function isValidIndianPhone(input: string): boolean {
   const n = normalizePhone(input)
   return n.length === 10 && /^[6-9]/.test(n)
@@ -107,7 +111,7 @@ export default function OnboardingPage() {
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState('')
   const [otpSent, setOtpSent] = useState(false)
-  const [otpMethod, setOtpMethod] = useState<'telegram' | 'email' | ''>('')
+  const [otpMethod, setOtpMethod] = useState<'whatsapp' | 'telegram' | 'email' | ''>('')
   const [otpCode, setOtpCode] = useState('')
   const [loginName, setLoginName] = useState('')
 
@@ -127,7 +131,7 @@ export default function OnboardingPage() {
     if (step === 1) return !!form.goal
     if (step === 3) return !!form.height_cm && !!form.weight_kg && !!form.age && !!form.sex
     if (step === 4) return !!form.activity_level
-    if (step === 9) return !!form.name && isValidIndianPhone(form.phone_number)
+    if (step === 9) return !!form.name && isValidIndianPhone(form.phone_number) && isValidEmail(form.email)
     return true
   }
 
@@ -212,7 +216,7 @@ export default function OnboardingPage() {
       try { data = JSON.parse(text) } catch { throw new Error(`Login failed (${res.status}): ${text.slice(0, 120)}`) }
       if (!res.ok) throw new Error((data.error as string) || 'Login failed')
       setOtpSent(true)
-      setOtpMethod(data.method as 'telegram' | 'email')
+      setOtpMethod(data.method as 'whatsapp' | 'telegram' | 'email')
       setLoginName((data.name as string) || '')
     } catch (e) {
       setLoginError(e instanceof Error ? e.message : 'Something went wrong')
@@ -322,9 +326,11 @@ export default function OnboardingPage() {
               {loginName ? `Hey ${loginName}!` : 'Enter your code'}
             </h2>
             <p className="text-[#6B7268] text-center text-sm mb-8">
-              {otpMethod === 'telegram'
+              {otpMethod === 'whatsapp'
                 ? 'We sent a 6-digit code to your WhatsApp.'
-                : 'We sent a 6-digit code to your email.'}
+                : otpMethod === 'telegram'
+                  ? 'We sent a 6-digit code to your Telegram.'
+                  : 'We sent a 6-digit code to your email. Check spam if it is not there.'}
             </p>
             <div className="space-y-4">
               <div>
@@ -748,7 +754,10 @@ export default function OnboardingPage() {
               <div>
                 <Label className="mb-2 block">Email</Label>
                 <Input type="email" placeholder="you@gmail.com" value={form.email} onChange={e => set('email', e.target.value)} />
-                <p className="text-xs text-[#6B7268] mt-1">For login codes, and so we can nudge you if you go quiet for a few days.</p>
+                {form.email.length > 0 && !isValidEmail(form.email) && (
+                  <p className="text-xs text-[#C66B5C] mt-1">Enter a valid email address</p>
+                )}
+                <p className="text-xs text-[#6B7268] mt-1">This is how you log back in, so use one you actually check.</p>
               </div>
             </div>
           </div>
