@@ -70,6 +70,45 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // WhatsApp business profile (what users see in the chat header) plus the
+  // display-name approval status. An unapproved name means recipients see a
+  // bare phone number instead of the business name.
+  if (p.get('action') === 'wa_profile') {
+    try {
+      const prof = await fetch(`${GRAPH}/${phoneNumberId}/whatsapp_business_profile?fields=about,address,description,email,profile_picture_url,websites,vertical`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      result.wa_profile = { status: prof.status, body: await prof.json().catch(() => null) }
+      const nm = await fetch(`${GRAPH}/${phoneNumberId}?fields=verified_name,name_status,new_name_status,display_phone_number,quality_rating,status,is_official_business_account`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      result.wa_name_status = { status: nm.status, body: await nm.json().catch(() => null) }
+    } catch (e) {
+      result.wa_profile = { error: String(e) }
+    }
+  }
+
+  // Set the business profile fields users see in the chat header.
+  if (p.get('action') === 'set_wa_profile') {
+    try {
+      const r = await fetch(`${GRAPH}/${phoneNumberId}/whatsapp_business_profile`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          about: 'Your AI nutrition coach. Meal plans for Indian food.',
+          description: 'Kanshi builds a personalised 7-day Indian meal plan around your goal, schedule and budget, then checks in daily. Send a photo of any meal to log it.',
+          email: 'hello@lockin.food',
+          websites: ['https://www.lockin.food'],
+          vertical: 'HEALTH',
+        }),
+      })
+      result.set_profile = { status: r.status, body: await r.json().catch(() => null) }
+    } catch (e) {
+      result.set_profile = { error: String(e) }
+    }
+  }
+
   // Raw Resend send, returning the API's exact response. Distinguishes an
   // unverified sending domain from a delivery problem.
   if (p.get('action') === 'test_email_raw') {
